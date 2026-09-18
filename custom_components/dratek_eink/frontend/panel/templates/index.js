@@ -66,7 +66,7 @@ export const DISPLAY_TEMPLATES = [
   washer,
 ];
 
-// Whether the DRÁTEK brand-logo tile is offered in the catalog.
+// Whether the pre-release-only tiles are offered in the catalog.
 //
 // This is the one switch that separates a stable build from a pre-release: the
 // shelf-wide logo broadcast is a company tool rather than something every
@@ -81,8 +81,13 @@ export const DISPLAY_TEMPLATES = [
 // question of what can be newly chosen, nothing more.
 export const BRAND_LOGO_TEMPLATE_VISIBLE = true;
 
+// The tiles that ship only in a pre-release. Both are company tools rather
+// than something every installation wants a button for: one broadcasts the
+// DRATEK logo across a whole shelf, the other is the shop-floor sign.
+const PRERELEASE_ONLY_TEMPLATE_IDS = new Set(["dratek_logo", "sign"]);
+
 export const DISPLAY_TEMPLATE_CATALOG = DISPLAY_TEMPLATES.filter(
-  (entry) => BRAND_LOGO_TEMPLATE_VISIBLE || entry.catalog.id !== "dratek_logo",
+  (entry) => BRAND_LOGO_TEMPLATE_VISIBLE || !PRERELEASE_ONLY_TEMPLATE_IDS.has(entry.catalog.id),
 ).map((entry) => entry.catalog);
 
 export const DISPLAY_TEMPLATES_BY_ID = Object.fromEntries(

@@ -1116,6 +1116,24 @@ export const inspectorMixin = {
     this.shadowRoot.querySelectorAll("[data-transit-stop-clear]").forEach((button) => button.addEventListener("click", () => {
       this._clearTransitStop?.(button.dataset.transitStopClear);
     }));
+    this.shadowRoot.querySelectorAll("[data-template-icon-picker]").forEach((button) => button.addEventListener("click", () => {
+      const key = button.dataset.templateIconPicker;
+      // One gallery open at a time: the settings column is narrow, and two of
+      // them stacked push the field being edited off the bottom of it.
+      this._templateIconPickerKey = this._templateIconPickerKey === key ? "" : key;
+      this._render();
+    }));
+    this.shadowRoot.querySelectorAll("[data-template-icon-choice]").forEach((button) => button.addEventListener("click", () => {
+      const [bindingKey, icon] = String(button.dataset.templateIconChoice).split("|");
+      if (!bindingKey || !icon) return;
+      this._displayTemplateBindings ||= {};
+      // Stored exactly like a typed name: the gallery is a way of writing the
+      // value, not a second kind of value the rest of the panel has to know about.
+      this._displayTemplateBindings[bindingKey] = `literal:${icon}`;
+      this._templateIconPickerKey = "";
+      this._render();
+      this._paint();
+    }));
     this.shadowRoot.querySelectorAll("[data-template-literal-value]").forEach((input) => {
       const bindingKey = input.dataset.templateLiteralValue;
       input.addEventListener("input", () => {

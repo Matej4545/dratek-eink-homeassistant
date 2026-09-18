@@ -1205,7 +1205,7 @@ export const templateSvgMixin = {
   _layoutTemplateSvg(rows, width, height, collector) {
     // Pixel-perfect full-panel blocks own their internal layout. Hand them the
     // display's exact rectangle: no page padding, footer band, or column split.
-    if (rows.length === 1 && (rows[0]?.dither || rows[0]?.customImage || rows[0]?.brandLogo || rows[0]?.radarMap) && rows[0]?.pixelPerfect) {
+    if (rows.length === 1 && (rows[0]?.dither || rows[0]?.customImage || rows[0]?.brandLogo || rows[0]?.radarMap || rows[0]?.sign) && rows[0]?.pixelPerfect) {
       const box = { x: 0, y: 0, w: width, h: height, fullX: 0, fullW: width };
       if (collector && rows[0].__rowIndex !== undefined) collector.push({ rowIndex: rows[0].__rowIndex, box });
       return this._renderTemplateBlock(rows[0], box);
@@ -1523,9 +1523,16 @@ export const templateSvgMixin = {
   // The plate is one of the few places on this panel where a solid colour area
   // earns its ink. Yellow is a surface colour here, never a type colour (see the
   // outline _svgText gives yellow glyphs), so it carries a picture rather than
-  // words. A three-colour panel has no yellow at all, and a red plate beside red
-  // type reads as two headlines competing, so there the plate is black with the
-  // glyph knocked out white - the same sign, in the ink that panel owns.
+  // words. A three-colour panel has no yellow at all, so yellow falls back to
+  // black there rather than to red: red is a colour the user can still pick
+  // deliberately, and silently turning their yellow into it would take that
+  // choice away.
+  //
+  // "white" means no plate: the glyph is drawn in black straight onto the paper.
+  //
+  // No border, and the plate bleeds to the panel edge (fullX/fullW, like a
+  // band). A frame drawn a few pixels inside the panel's own edge reads on a
+  // shelf rail as a second, crooked edge rather than as part of the sign.
   //
   // With the plate switched off the name takes the whole board. That is a real
   // layout of its own, not a picture with a gap where the icon was: the type is
@@ -1535,47 +1542,97 @@ export const templateSvgMixin = {
     const sign = row.sign || {};
     const text = sign.text == null ? "" : String(sign.text);
     const withIcon = sign.showIcon !== false && !!sign.icon;
+    const x = box.fullX === undefined ? box.x : box.fullX;
+    const w = box.fullW === undefined ? box.w : box.fullW;
     const parts = [];
-    // The frame is drawn inside the row, on whole pixels and with an odd-width
-    // stroke centred on its own path, so the panel prints a closed rectangle
-    // rather than two grey edges where a half-pixel landed on the threshold.
-    const stroke = sign.frame === false ? 0 : Math.max(2, Math.round(Math.min(box.w, box.h) * 0.025));
-    if (stroke) {
-      parts.push(`<rect x="${(box.x + stroke / 2).toFixed(2)}" y="${(box.y + stroke / 2).toFixed(2)}"`
-        + ` width="${Math.max(1, box.w - stroke).toFixed(2)}" height="${Math.max(1, box.h - stroke).toFixed(2)}"`
-        + ` fill="none" stroke="${BLACK}" stroke-width="${stroke}"></rect>`);
-    }
-    const inner = {
-      x: box.x + stroke,
-      y: box.y + stroke,
-      w: Math.max(1, box.w - stroke * 2),
-      h: Math.max(1, box.h - stroke * 2),
-    };
-    let textX = inner.x;
-    let textWidth = inner.w;
+    let textX = x;
+    let textWidth = w;
     if (withIcon) {
       // Square, and never more than half the board: a plate that grew with the
       // panel would swallow a wide landscape tag and leave the name in a strip.
-      const plate = Math.max(1, Math.min(inner.h, inner.w * 0.5));
-      const plateInk = this._displaySupportsYellow?.() ? YELLOW : BLACK;
-      parts.push(`<rect x="${inner.x.toFixed(2)}" y="${inner.y.toFixed(2)}"`
-        + ` width="${plate.toFixed(2)}" height="${inner.h.toFixed(2)}" fill="${plateInk}"></rect>`);
-      parts.push(this._svgIcon(sign.icon, inner.x + plate / 2, inner.y + inner.h / 2, plate * 0.68,
-        plateInk === YELLOW ? BLACK : "#ffffff"));
-      textX = inner.x + plate;
-      textWidth = Math.max(1, inner.w - plate);
+      const plate = Math.max(1, Math.min(box.h, w * 0.5));
+      const plateInk = this._signPlateInk(sign.plate);
+      if (plateInk) {
+        parts.push(`<rect x="${x.toFixed(2)}" y="${box.y.toFixed(2)}"`
+          + ` width="${plate.toFixed(2)}" height="${box.h.toFixed(2)}" fill="${plateInk}"></rect>`);
+      }
+      // Knocked out white on an ink the panel prints solid, black on yellow or
+      // on bare paper - the two combinations this hardware can actually hold.
+      const glyphInk = plateInk && plateInk !== YELLOW ? "#ffffff" : BLACK;
+      parts.push(this._svgIcon(sign.icon, x + plate / 2, box.y + box.h / 2, plate * 0.68, glyphInk));
+      textX = x + plate;
+      textWidth = Math.max(1, w - plate);
     }
     if (!text) return parts.join("");
-    // _svgText shrinks to fit maxWidth, so this is the size the name is allowed
-    // to reach, not the size it will take: a short word fills the board and a
-    // long one steps down instead of running off the edge.
-    const fontSize = Math.max(10, Math.min(inner.h * (withIcon ? 0.42 : 0.56), textWidth * 0.32));
-    parts.push(this._svgText(text, textX + textWidth / 2, inner.y + inner.h / 2, fontSize, {
-      bold: sign.bold !== false,
-      color: this._templateInk(sign.color),
-      maxWidth: textWidth * 0.88,
-    }));
+    const bold = sign.bold !== false;
+    const maxWidth = textWidth * 0.88;
+    // The size the name is *allowed* to reach, not the size it will take.
+    const ceiling = Math.max(10, Math.min(box.h * (withIcon ? 0.42 : 0.56), textWidth * 0.32));
+    const { lines, size } = this._signTextLines(text, maxWidth, box.h * 0.92, ceiling, bold);
+    const lineHeight = size * 1.18;
+    const firstY = box.y + box.h / 2 - (lines.length - 1) * lineHeight / 2;
+    const ink = this._templateInk(sign.color);
+    lines.forEach((line, index) => {
+      parts.push(this._svgText(line, textX + textWidth / 2, firstY + index * lineHeight, size, {
+        bold, color: ink, maxWidth,
+      }));
+    });
     return parts.join("");
+  },
+
+  // Break the name between words, not between letters, and only shrink once
+  // wrapping has run out of room.
+  //
+  // _svgText on its own can only do one line: it shrinks to fit and then clips
+  // with an ellipsis, so a two-word department name on a narrow board came
+  // out either tiny or cut off after the first word. A name like that is two
+  // or three words and the
+  // board is half a panel wide - wrapping is what that shape actually wants.
+  //
+  // Sizes step down whole pixels from the ceiling to the ten-pixel floor the
+  // rest of the panel uses, and the first size whose wrapped block fits both
+  // the width and the height wins. A single word longer than the board can
+  // never fit; that falls through to the floor and _svgText clips it, which is
+  // the same answer as before for the one case wrapping cannot help.
+  _signTextLines(text, maxWidth, maxHeight, ceiling, bold) {
+    const words = String(text ?? "").split(/\s+/).filter(Boolean);
+    if (!words.length) return { lines: [], size: ceiling };
+    const wrap = (size) => {
+      const lines = [];
+      let current = "";
+      for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+        if (current && this._svgTextWidth(candidate, size, bold) > maxWidth) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = candidate;
+        }
+      }
+      if (current) lines.push(current);
+      return lines;
+    };
+    const floor = 10;
+    for (let size = Math.max(floor, Math.round(ceiling)); size > floor; size -= 1) {
+      const lines = wrap(size);
+      const widest = Math.max(...lines.map((line) => this._svgTextWidth(line, size, bold)));
+      if (lines.length * size * 1.18 <= maxHeight && widest <= maxWidth) return { lines, size };
+    }
+    // At the floor, keep as many lines as the height holds rather than piling
+    // them off the bottom of the sign.
+    const lines = wrap(floor);
+    return { lines: lines.slice(0, Math.max(1, Math.floor(maxHeight / (floor * 1.18)))), size: floor };
+  },
+
+  // The plate's fill, or "" for no plate at all. Not _templateInk: that maps
+  // yellow to red on a three-colour panel, which is right for a thin graphic
+  // detail and wrong for an area the size of half the sign.
+  _signPlateInk(plate) {
+    const choice = String(plate || "yellow").toLowerCase();
+    if (choice === "white" || choice === "none") return "";
+    if (choice === "red") return RED;
+    if (choice === "black") return BLACK;
+    return this._displaySupportsYellow?.() ? YELLOW : BLACK;
   },
 
   _blockList(row, box) {

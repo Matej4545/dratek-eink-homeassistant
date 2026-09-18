@@ -44,7 +44,11 @@ class BrandLogoVisibilityTests(unittest.TestCase):
         catalog = INDEX[INDEX.index("export const DISPLAY_TEMPLATE_CATALOG") :]
         catalog = catalog[: catalog.index("export const DISPLAY_TEMPLATES_BY_ID")]
         self.assertIn("BRAND_LOGO_TEMPLATE_VISIBLE", catalog)
-        self.assertIn("dratek_logo", catalog)
+        # The id travels in PRERELEASE_ONLY_TEMPLATE_IDS now, declared right
+        # above the filter, because the sign template rides the same switch.
+        self.assertIn("PRERELEASE_ONLY_TEMPLATE_IDS", catalog)
+        gate = INDEX[: INDEX.index("export const DISPLAY_TEMPLATE_CATALOG")]
+        self.assertIn('PRERELEASE_ONLY_TEMPLATE_IDS = new Set(["dratek_logo"', gate)
 
     def test_the_template_stays_in_the_lists_that_render_it(self) -> None:
         # DISPLAY_TEMPLATES is built from the imported entries; dratekLogo has

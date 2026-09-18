@@ -255,7 +255,7 @@ class BrandLogoBroadcastTests(unittest.TestCase):
         self.assertLess(broadcast, conflict)
 
     def test_it_asks_before_doing_anything(self) -> None:
-        self.assertIn("if (!confirm(this._brandLogoConfirmationText(targets.length))) return;", self.mixin)
+        self.assertIn("if (!confirm(this._brandLogoConfirmationText(targets.length, skipped))) return;", self.mixin)
         self.assertIn("Tuto akci nelze vzít zpět.", self.mixin)
 
     def test_every_known_display_is_a_target_not_only_the_reachable_ones(self) -> None:
@@ -347,7 +347,7 @@ class BrandLogoBroadcastTests(unittest.TestCase):
         # The old finally block saw an empty failure list and reported success:
         # a run that died at display 47 of 100 read as "queued for all 47".
         self.assertIn("let reachedEveryDisplay = false;", self.mixin)
-        outcome = self.mixin[self.mixin.index("_brandLogoBroadcastOutcome(sent, total, failures, reachedEveryDisplay) {"):]
+        outcome = self.mixin[self.mixin.index("_brandLogoBroadcastOutcome(sent, total, failures, reachedEveryDisplay, skipped = 0) {"):]
         outcome = outcome[: outcome.index("\n  },")]
         self.assertIn("if (!reachedEveryDisplay) {", outcome)
         self.assertIn("Hromadné odeslání se zastavilo po ${sent} z ${total} displejů.", outcome)

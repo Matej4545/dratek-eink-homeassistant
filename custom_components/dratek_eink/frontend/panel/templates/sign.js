@@ -12,6 +12,10 @@ export const template = {
     category: "shop",
     title: "Cedule s ikonou",
     manualValues: true,
+    // Nothing here is a reading, so the settings dialog drops the entity
+    // pickers and their help text: two fields instead of a wall in front of
+    // two words. See _renderTemplateVariableSetting.
+    manualOnly: true,
     // Fourth element = the switch starts on. Without it the board would arrive
     // with no picture on it until the user found the setting.
     options: [[
@@ -24,8 +28,9 @@ export const template = {
     // _templateVariableMeta), takže vložení proměnné doprostřed přepíše vazby
     // všech následujících na už nasazených displejích.
     variables: [
-      ["shape-outline", "Ikona"],
+      ["shape-outline", "Ikona", "icon"],
       ["format-text", "Popisek"],
+      ["palette", "Barva pozadí", "plate"],
     ],
   },
   prepared: true,
@@ -33,29 +38,29 @@ export const template = {
     summary: "Ikona na barevné ploše a popisek vedle ní. Obojí se vypisuje ručně, displej tedy nepotřebuje žádnou entitu ani integraci.",
     integrations: [],
     steps: [
-      "V Nastavit vyplňte Ruční hodnotu u pole Ikona názvem MDI ikony bez předpony mdi: - například cart, fridge-outline nebo tools. Funguje kterákoli ikona z pictogrammers.com/library/mdi/.",
+      "V Nastavit klikněte u pole Ikona na dlaždici a vyberte ikonu z knihovny Designeru. Do pole pod knihovnou lze místo toho napsat název kterékoli MDI ikony bez předpony mdi: - třeba cart, fridge-outline nebo tools; seznam je na pictogrammers.com/library/mdi/.",
       "Do pole Popisek napište, jak se oddělení jmenuje.",
-      "Přepínačem Zobrazit ikonu ceduli přepnete mezi obrázkem s popiskem a samotným popiskem přes celou plochu.",
+      "Barvu plochy pod ikonou vyberte v poli Barva pozadí. Přepínačem Zobrazit ikonu ceduli přepnete mezi obrázkem s popiskem a samotným popiskem přes celou plochu.",
     ],
-    note: "Barevná plocha pod ikonou je žlutá na čtyřbarevných displejích a černá s bílou ikonou na tříbarevných - žlutá na nich neexistuje a červená plocha vedle červeného textu by soupeřila o pozornost. Popisek se automaticky zmenší, aby se vešel celý; delší název oddělení proto vyjde menším písmem, ne přetečený.",
+    note: "Žlutá plocha na tříbarevném displeji vyjde černá - žlutý pigment tam neexistuje a přebarvit ji na červenou by vzalo červenou jako vaši vlastní volbu. Na černé i červené ploše se ikona vykreslí bíle, na žluté a bílé černě. Popisek se zalamuje po slovech a teprve když ani zalomený nestačí, zmenší se písmo - delší název oddělení tedy vyjde na víc řádků, ne přetečený.",
   },
-  design: ({ v, option, width, height }) => {
+  design: ({ v, option }) => {
     const board = {
       // The outlined cart rather than the filled one: at this size a solid
       // silhouette is a slab of ink, and the outline is also one of the icons
       // the offline test harness vendors, so the default draws everywhere.
       icon: v(0, "cart-outline"),
       text: v(1, "Nákupní oddělení"),
+      plate: v(2, "yellow"),
       showIcon: option("icon"),
     };
-    // A tall panel gets a margin so the board reads as a plate on the paper
-    // rather than as the panel's own edge; a small landscape tag has no such
-    // room to give away and fills edge to edge.
-    if (height > width) return [
-      { gap: true, h: 0.06 },
-      { sign: board, h: 0.88 },
-      { gap: true, h: 0.06 },
-    ];
-    return [{ sign: board, h: 1 }];
+    // Edge to edge in both orientations. The board used to keep a margin on a
+    // tall panel so it read as a plate on paper; the plate is the thing that
+    // reads, and a strip of white above and below it just made the sign
+    // smaller.
+    // pixelPerfect takes the page padding off: the plate is meant to run into
+    // the panel's own edge, and a 6px white margin around it reads as a badly
+    // cut sticker rather than as a design.
+    return [{ sign: board, h: 1, pixelPerfect: true }];
   },
 };

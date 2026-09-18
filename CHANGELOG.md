@@ -2,58 +2,61 @@
 
 Všechny významné změny a historie verzí v projektu DRATEK eInk.
 
-## [1.0.9-beta.3] - 2026-09-18
+## [1.0.3] - 2026-09-18
+
+Sjednocené číslování. Vydání obsahuje všechny opravy z dřívějších pracovních verzí 1.0.8 a 1.0.9-beta.*, které byly staženy.
 
 ### Přidáno
 
-- Nová šablona **Cedule s ikonou**, v katalogu na prvním místě. Ikona na barevné ploše vlevo, popisek vpravo; obojí se vypisuje ručně, takže displej nepotřebuje žádnou entitu ani integraci. Ikonu lze zadat jménem kterékoli MDI ikony, popisek je volný text a přepínač „Zobrazit ikonu“ ceduli přepne na samotný popisek přes celou plochu. Plocha pod ikonou je žlutá na čtyřbarevných displejích a černá s bílou ikonou na tříbarevných – žlutá na nich neexistuje a červená plocha vedle červeného textu by soupeřila o pozornost.
 - Textový prvek v Designeru může mít víc řádků – Enter v poli Obsah vloží nový řádek. Náhled, odeslaný obraz i automatická aktualizace vysází text na tolik řádků, kolik jich napíšete.
-- Buňka prvku Patička displeje umí číst entitu Home Assistantu (volitelně i její atribut). Hodnota se propíše do náhledu, do ručního odeslání i do automatických aktualizací – patička se nově obnovuje jako každý jiný svázaný prvek.
+- Buňka prvku Patička displeje umí číst entitu Home Assistantu (volitelně i její atribut). Hodnota se propíše do náhledu, do ručního odeslání i do automatických aktualizací.
 
 ### Opraveno
 
-- Náhledy prvků a bloků v paletě Designeru už nejsou roztažené ani smrsknuté. Tlačítko se vykreslí v rozlišení zvoleného displeje, projde stejným vykreslovačem jako odeslaný obraz a obarví se paletou, kterou displej opravdu tiskne – ukázka je tedy tvarem i barvou tím, co na displeji vznikne.
-- Patička vykreslená na pozadí bez SVG rasterizéru se vejde do červeného pruhu i tehdy, když je buňka vystředěná u jeho okraje; dřív by taková aktualizace skončila chybou.
+- Bluetooth přenos z Home Assistantu na čtyřbarevné displeje 296×128 (SDK 46) používá potvrzované GATT zápisy stejně jako SDK 51. Předchozí režim jen zařadil bloky k odeslání a mohl skončit úspěchem bez změny obrazu.
+- Opakované uložení vlastní šablony vytvořené od nuly zachovává prázdný základ. Dřív vznikl odkaz šablony na sebe samotnou a do obrazu se přidávala náhradní černá ikona s názvem „Vlastní šablona“.
+- Náhledy prvků a bloků v paletě Designeru už nejsou roztažené ani smrsknuté. Každá dlaždice se vykreslí v rozlišení zvoleného displeje, projde stejným vykreslovačem jako odeslaný obraz a obarví se paletou, kterou displej opravdu tiskne.
+- Patička vykreslená bez SVG rasterizéru se vejde do červeného pruhu i tehdy, když je buňka vystředěná u jeho okraje; dřív taková aktualizace skončila chybou.
 - Patička se měří proti rozlišení, ve kterém se displej opravdu odesílá, ne proti výchozí velikosti daného SDK. Na displejích s vlastním nastaveným rozlišením by jinak přistála na špatné souřadnice.
+- Odeslání návrhu, který nemá na co navázanou žádnou entitu, zruší i starou automatickou aktualizaci. Ta v sobě držela předchozí návrh a při první změně entity displej přepsala zpátky na něj.
 
 ### Ověření
 
-- 1 200 testů integrace, včetně nových kontrol vykreslení patičky, náhledů palety, víceřádkového textu a nové šablony.
-- Ověřeno v lokálním náhledu panelu: všech 23 náhledů bloků má pixel na pixel rozměr, který blok na displeji zabere; dvouřádkový text se vykreslí do dvou řádků v náhledu i na plátně odesílaného obrazu; buňka patičky svázaná s entitou zobrazí její živou hodnotu; cedule vykreslí ikonu i popisek a po odškrtnutí přepínače popisek sám přes celou plochu.
-- Firmware gateway zůstává 0.1.76. Na fyzickém displeji zatím neověřeno.
+- 1 210 testů integrace.
+- Ověřeno v lokálním náhledu panelu: všech 23 náhledů bloků má pixel na pixel rozměr, který blok na displeji zabere; dvouřádkový text se vykreslí do dvou řádků v náhledu i na plátně odesílaného obrazu; buňka patičky svázaná s entitou zobrazí její živou hodnotu.
+- Firmware gateway zůstává 0.1.76. Přenos na SDK 46 byl ověřen na fyzickém displeji přes ESP32 gateway (všech 40 bloků potvrzeno); ostatní změny zatím jen v náhledu.
 
-## [1.0.9-beta.2] - 2026-09-18
+Firemní šablona DRÁTEK (hromadné odeslání) ani šablona Cedule s ikonou ve stabilním vydání nejsou – obojí je dílenský nástroj a nabízí je jen předběžná verze.
 
-### Opraveno
+## [1.0.3-beta.1] - 2026-09-18
 
-- Opakované uložení vlastní šablony vytvořené od nuly zachovává prázdný základ. Dříve vznikal odkaz šablony na sebe samotnou a vykreslování přidávalo náhradní černou ikonu a název „Vlastní šablona“ do obrazu.
-- Vykreslování bezpečně zpracuje i starší šablony s cyklickým nebo chybějícím základem; náhled takové šablony se sestaví z editovatelných prvků místo starého zachyceného obrázku.
-- Šablony odvozené od existujícího návrhu nadále zachovávají svůj skutečný základ. Firemní šablona DRÁTEK pro hromadné odeslání zůstává dostupná.
-
-Ověřeno regresním testem opakovaného ukládání, starých odkazů a odvozených šablon a 172 kontrolami editoru a šablon. Konkrétní uložený návrh uživatele nebyl k dispozici pro vizuální ověření.
-
-## [1.0.9-beta.1] - 2026-09-18
-
-Předběžné vydání vycházející ze stabilní verze 1.0.8, včetně opravy potvrzovaných Bluetooth přenosů pro SDK 46.
+Totožné s 1.0.3 a navíc dvě dlaždice, které stabilní vydání nemá.
 
 ### Přidáno
 
-- V katalogu je dostupná firemní šablona DRÁTEK s tlačítkem pro odeslání na všechny známé displeje.
-- Hromadné odeslání po potvrzení nahradí jejich automatické aktualizace a čekající úlohy šablonou DRÁTEK.
+- Firemní šablona **DRÁTEK** s tlačítkem pro hromadné odeslání na displeje. Nově přeskočí displeje, na kterých už něco je – jmenovky na dveřích ani cenovky hromadné odeslání nepřepíše; před odesláním se zobrazí, kolik displejů bylo přeskočeno.
+- Nová šablona **Cedule s ikonou**. Ikona na barevné ploše vlevo, popisek vpravo; obojí se vypisuje ručně, displej tedy nepotřebuje žádnou entitu ani integraci. Ikona se vybírá ze stejné knihovny jako v Designeru (nebo názvem kterékoli MDI ikony), barva plochy je na výběr žlutá/červená/černá/bílá, popisek se zalamuje po slovech a přepínač „Zobrazit ikonu“ ceduli přepne na samotný popisek přes celou plochu.
 
-Firmware gateway zůstává 0.1.76. Stabilní vydání 1.0.8 zůstává dostupné; tuto betu nabízí HACS při zapnutých předběžných verzích.
-
-## [1.0.8] - 2026-09-18
+- Textový prvek v Designeru může mít víc řádků – Enter v poli Obsah vloží nový řádek. Náhled, odeslaný obraz i automatická aktualizace vysází text na tolik řádků, kolik jich napíšete.
+- Buňka prvku Patička displeje umí číst entitu Home Assistantu (volitelně i její atribut). Hodnota se propíše do náhledu, do ručního odeslání i do automatických aktualizací.
 
 ### Opraveno
 
-- Bluetooth přenos z Home Assistantu na čtyřbarevné displeje 296×128 (SDK 46) používá potvrzované GATT zápisy stejně jako SDK 51. Předchozí režim pouze zařadil bloky k odeslání a mohl skončit úspěchem bez změny obrazu.
-- Doplněny regresní testy přenosu všech 40 bloků, chybějícího potvrzení uprostřed přenosu a dokončení s poslední chybějící GATT odpovědí a potvrzením displeje.
+- Bluetooth přenos z Home Assistantu na čtyřbarevné displeje 296×128 (SDK 46) používá potvrzované GATT zápisy stejně jako SDK 51. Předchozí režim jen zařadil bloky k odeslání a mohl skončit úspěchem bez změny obrazu.
+- Opakované uložení vlastní šablony vytvořené od nuly zachovává prázdný základ. Dřív vznikl odkaz šablony na sebe samotnou a do obrazu se přidávala náhradní černá ikona s názvem „Vlastní šablona“.
+- Náhledy prvků a bloků v paletě Designeru už nejsou roztažené ani smrsknuté. Každá dlaždice se vykreslí v rozlišení zvoleného displeje, projde stejným vykreslovačem jako odeslaný obraz a obarví se paletou, kterou displej opravdu tiskne.
+- Patička vykreslená bez SVG rasterizéru se vejde do červeného pruhu i tehdy, když je buňka vystředěná u jeho okraje; dřív taková aktualizace skončila chybou.
+- Patička se měří proti rozlišení, ve kterém se displej opravdu odesílá, ne proti výchozí velikosti daného SDK. Na displejích s vlastním nastaveným rozlišením by jinak přistála na špatné souřadnice.
+- Odeslání návrhu, který nemá na co navázanou žádnou entitu, zruší i starou automatickou aktualizaci. Ta v sobě držela předchozí návrh a při první změně entity displej přepsala zpátky na něj.
 
 ### Ověření
 
-- Testovací přenos na SDK 46 přes ESP32 gateway přijal všech 40 bloků a displej potvrdil přijetí celého obrazu. Přímý přenos přes Home Assistant po úpravě nebyl na hardwaru ověřen.
-- Firmware gateway zůstává 0.1.76; aktualizuje se integrace Home Assistantu.
+- 1 210 testů integrace.
+- Ověřeno v lokálním náhledu panelu: všech 23 náhledů bloků má pixel na pixel rozměr, který blok na displeji zabere; dvouřádkový text se vykreslí do dvou řádků v náhledu i na plátně odesílaného obrazu; buňka patičky svázaná s entitou zobrazí její živou hodnotu.
+- Firmware gateway zůstává 0.1.76. Přenos na SDK 46 byl ověřen na fyzickém displeji přes ESP32 gateway (všech 40 bloků potvrzeno); ostatní změny zatím jen v náhledu.
+- Ověřeno v náhledu: cedule vykreslí ikonu i popisek přes celou plochu displeje bez rámečku, popisek se zalomí po slovech na dva až tři řádky a všechny čtyři barvy plochy vyjdou správně (na černé a červené bílá ikona, na žluté a bílé černá).
+
+V HACS zapněte předběžné verze, obnovte data a nainstalujte betu.
 
 ## [1.0.2-beta.1] - 2026-09-10
 

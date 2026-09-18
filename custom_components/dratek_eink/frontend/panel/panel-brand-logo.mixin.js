@@ -337,12 +337,40 @@ export const brandLogoMixin = {
     return builtIn ? { ...builtIn.catalog, user_created: false } : null;
   },
 
+  // A display is "in use" once something other than the logo has been put on it
+  // or is assigned to it and waiting to be.
+  //
+  // The two records are kept apart on purpose: sent_template_ids is what the
+  // display is carrying right now, and the assignment is what it is configured
+  // to carry next. A door plate that has been sent has the first; one set up
+  // this morning and not yet sent has only the second, and overwriting that
+  // still destroys work.
+  //
+  // The logo itself never counts. Re-running the broadcast over a shelf that
+  // already carries it is the ordinary case - a fresh batch mixed in among
+  // displays done last week - and treating the logo as "in use" would make
+  // every broadcast after the first reach nothing.
+  _brandLogoDisplayInUse(device) {
+    const carries = (ids) => (ids || []).some((id) => id && id !== BRAND_LOGO_TEMPLATE_ID);
+    return carries(this._sentDisplayTemplates?.(device)) || carries(this._assignedDisplayTemplates?.(device));
+  },
+
   // Every display the panel knows about, not only the ones a gateway can see
   // right now. An unreachable display's transfer is queued and written when it
   // next reports in, which is the behaviour a shelf reset wants: nothing is
   // silently skipped because a panel happened to be asleep.
-  _brandLogoTargets() {
+  _brandLogoKnownDisplays() {
     return (this._result?.devices || []).filter((device) => String(device?.address || "").trim());
+  },
+
+  // ...with one exception. The logo goes on stock waiting to be sold, but the
+  // same displays also run the name plates on the office doors, and a broadcast
+  // that reached those replaced every name with a logo - with no way back but
+  // setting each one up again by hand. A display carrying something of its own
+  // is left alone; send the logo to it from its own settings if wiping it is
+  // genuinely what you meant.
+  _brandLogoTargets() {
+    return this._brandLogoKnownDisplays().filter((device) => !this._brandLogoDisplayInUse(device));
   },
 
   // Orientation and transform are per display, taken from that display's own
@@ -518,9 +546,13 @@ export const brandLogoMixin = {
     };
   },
 
-  _brandLogoConfirmationText(count) {
-    return `Odeslat logo Drátek na všech ${count} známých displejů?\n\n`
-      + "U každého displeje se nejdřív zruší automatická aktualizace a zruší se jeho čekající úlohy ve frontě. "
+  _brandLogoConfirmationText(count, skipped = 0) {
+    return `Odeslat logo Drátek na ${count} volných displejů?\n\n`
+      + (skipped
+        ? `${skipped} displejů se přeskočí - už na nich něco je (jmenovky, cenovky a podobně). `
+          + "Pokud chcete logo i na některý z nich, pošlete mu ho z jeho vlastního nastavení.\n\n"
+        : "")
+      + "U každého odeslaného displeje se nejdřív zruší automatická aktualizace a zruší se jeho čekající úlohy ve frontě. "
       + "Displeje mimo dosah se zapíší, jakmile se ohlásí gatewayi.\n\n"
       + "Tuto akci nelze vzít zpět.";
   },
@@ -544,7 +576,8 @@ export const brandLogoMixin = {
   // Three outcomes that used to collapse into one cheerful sentence: everything
   // queued, some displays refused, and the loop itself dying partway down the
   // list. The last one is the one that mattered and the one that was invisible.
-  _brandLogoBroadcastOutcome(sent, total, failures, reachedEveryDisplay) {
+  _brandLogoBroadcastOutcome(sent, total, failures, reachedEveryDisplay, skipped = 0) {
+    const untouched = skipped ? ` ${skipped} displejů bylo přeskočeno, protože už na nich něco je.` : "";
     if (!reachedEveryDisplay) {
       return {
         ok: false,
@@ -556,7 +589,7 @@ export const brandLogoMixin = {
     if (!failures.length) {
       return {
         ok: true,
-        message: `Logo Drátek bylo zařazeno do fronty pro všech ${sent} displejů. `
+        message: `Logo Drátek bylo zařazeno do fronty pro ${sent} volných displejů.${untouched} `
           + "Automatické aktualizace i dřívější čekající úlohy byly zrušeny. "
           + "Zápisy probíhají postupně přes dostupné gateway - průběh sledujte na kartě Fronta zápisu.",
       };
@@ -622,13 +655,20 @@ export const brandLogoMixin = {
       // still deserves the logo.
     }
 
+    const known = this._brandLogoKnownDisplays();
     const targets = this._brandLogoTargets();
+    const skipped = known.length - targets.length;
     if (!targets.length) {
-      this._templateSendResult = { ok: false, message: "Není známý žádný displej, kam logo poslat." };
+      // Two different nothings, and telling them apart is the point: "no
+      // display answered" is a fault to chase, "every display is already doing
+      // a job" is the safety net working.
+      this._templateSendResult = skipped
+        ? { ok: false, message: `Žádný volný displej - na všech ${skipped} už něco je. Logo jim pošlete jednotlivě z jejich nastavení.` }
+        : { ok: false, message: "Není známý žádný displej, kam logo poslat." };
       this._render();
       return;
     }
-    if (!confirm(this._brandLogoConfirmationText(targets.length))) return;
+    if (!confirm(this._brandLogoConfirmationText(targets.length, skipped))) return;
 
     this._brandLogoBroadcasting = true;
     const failures = [];
@@ -679,7 +719,7 @@ export const brandLogoMixin = {
       await this._loadAutomations?.();
       this._saveCachedDeviceDrafts?.();
       this._templateSendResult = this._brandLogoBroadcastOutcome(
-        sent, targets.length, failures, reachedEveryDisplay,
+        sent, targets.length, failures, reachedEveryDisplay, skipped,
       );
       this._render();
       this._paint();

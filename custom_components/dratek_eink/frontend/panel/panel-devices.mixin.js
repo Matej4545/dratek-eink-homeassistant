@@ -14,6 +14,32 @@ const GRAPHIC_BINDING_CAPTURE_VERSION = 2;
 // backend payload predates out_of_range; the backend's own answer wins.
 const DISPLAY_UNSEEN_GRACE_SECONDS = 3 * 60;
 
+// The icons the designer offers, and the same set a template's icon variable
+// picks from. One list, because a sign built from the settings dialog and the
+// same sign built by dropping an icon element in the designer have to be able
+// to look alike - and because every name here is in the offline test harness's
+// vendored geometry, which an arbitrary mdi name is not.
+// The inks a template's colour slot may pick. Four, because that is every ink
+// this hardware owns - "white" meaning bare paper rather than a fifth pigment.
+const TEMPLATE_PLATE_CHOICES = [
+  ["yellow", "Žlutá", "#f4c400"],
+  ["red", "Červená", "#e31b1b"],
+  ["black", "Černá", "#000000"],
+  ["white", "Bílá", "#ffffff"],
+];
+
+const TEMPLATE_ICON_CHOICES = [
+  ["star", "Hvězda"], ["heart", "Srdce"], ["home", "Dům"], ["account", "Osoba"],
+  ["weather-sunny", "Slunce"], ["weather-cloudy", "Mrak"], ["thermometer", "Teplota"], ["water-percent", "Vlhkost"],
+  ["wifi", "Wi-Fi"], ["bluetooth", "Bluetooth"], ["lightning-bolt", "Energie"], ["battery", "Baterie"],
+  ["calendar", "Kalendář"], ["clock-outline", "Čas"], ["lock-outline", "Zámek"], ["shield-lock-outline", "Zabezpečení"],
+  ["lightbulb-on-outline", "Světlo"], ["power", "Napájení"], ["check-circle-outline", "Hotovo"], ["alert-circle-outline", "Upozornění"],
+  ["information-outline", "Informace"], ["cart-outline", "Košík"], ["currency-usd", "Cena"], ["map-marker-outline", "Místo"],
+  ["door-open", "Dveře"], ["window-open-variant", "Okno"], ["fan", "Ventilátor"], ["radiator", "Topení"],
+  ["water-pump", "Čerpadlo"], ["sprinkler-variant", "Zavlažování"], ["solar-power", "Fotovoltaika"], ["ev-station", "Nabíjení"],
+  ["bell-outline", "Zvonek"], ["camera-outline", "Kamera"], ["package-variant-closed", "Zásilka"], ["tools", "Dílna"],
+];
+
 // The standard Czech civil name-day calendar, indexed [month][day - 1]
 // (getMonth() is already 0-based). Days with no name day (state/religious
 // holidays only, e.g. 1.1, 24.12) are "". Sourced from the public domain
@@ -2850,6 +2876,8 @@ export const devicesMixin = {
         ? "Vyberte barevnou fotografii; převod do stínované palety proběhne přímo v prohlížeči a uloží se k tomuto displeji."
         : isTransitTemplate
           ? "Vyhledejte zastávku podle názvu. Drátek pak sám načítá čtyři nejbližší odjezdy při každé automatické aktualizaci displeje."
+        : activeTemplate?.manualOnly
+          ? "Vyplňte obě položky. Tato šablona nečte nic z Home Assistantu - co napíšete, to displej vytiskne."
         : activeTemplate?.manualValues
           ? "U každé položky napište přímo hodnotu, nebo nechte ruční pole prázdné a vyberte entitu Home Assistantu."
           : "U každé položky vyberte entitu v Home Assistantu. Systémové údaje (čas, datum) se doplňují automaticky."}</p>
@@ -4479,6 +4507,20 @@ export const devicesMixin = {
         template_ids: [...this._assignedDisplayTemplates(device)],
       };
       payload.automation = await this._displayTemplateEntityAutomation(image, device, gatewayId);
+      // A design with nothing bound has nothing to refresh, so any automation
+      // left over from whatever this display carried before is not merely idle
+      // - it still holds that older design's artwork and bindings, and the next
+      // time one of those entities changes it repaints the display with it. A
+      // sign or a logo sent over a weather panel would quietly turn back into
+      // the weather panel. Clearing it is part of sending a static design.
+      if (!payload.automation) {
+        try {
+          await this._hass.callWS({ type: "dratek_eink/automations/delete", address: device.address });
+        } catch (_error) {
+          // No automation to delete answers ok:false; a websocket failure here
+          // must not fail a send that otherwise worked.
+        }
+      }
       const result = gatewayId
         ? await this._hass.callWS({
           type: "dratek_eink/gateways/send_design",
@@ -4727,17 +4769,7 @@ export const devicesMixin = {
       settings.label ||= label;
       return `<button type="button" class="template-palette-item variant-${this._escape(settings.variant || type)}" draggable="true" data-template-editor-tool="${type}" data-template-editor-icon="${this._escape(settings.icon || "")}" data-template-editor-preset="${this._escape(JSON.stringify(settings))}" title="Vložit ${this._escape(label)}">${toolPreview(type, settings)}<span>${this._escape(label)}</span></button>`;
     };
-    const iconNames = [
-      ["star", "Hvězda"], ["heart", "Srdce"], ["home", "Dům"], ["account", "Osoba"],
-      ["weather-sunny", "Slunce"], ["weather-cloudy", "Mrak"], ["thermometer", "Teplota"], ["water-percent", "Vlhkost"],
-      ["wifi", "Wi-Fi"], ["bluetooth", "Bluetooth"], ["lightning-bolt", "Energie"], ["battery", "Baterie"],
-      ["calendar", "Kalendář"], ["clock-outline", "Čas"], ["lock-outline", "Zámek"], ["shield-lock-outline", "Zabezpečení"],
-      ["lightbulb-on-outline", "Světlo"], ["power", "Napájení"], ["check-circle-outline", "Hotovo"], ["alert-circle-outline", "Upozornění"],
-      ["information-outline", "Informace"], ["cart-outline", "Košík"], ["currency-usd", "Cena"], ["map-marker-outline", "Místo"],
-      ["door-open", "Dveře"], ["window-open-variant", "Okno"], ["fan", "Ventilátor"], ["radiator", "Topení"],
-      ["water-pump", "Čerpadlo"], ["sprinkler-variant", "Zavlažování"], ["solar-power", "Fotovoltaika"], ["ev-station", "Nabíjení"],
-      ["bell-outline", "Zvonek"], ["camera-outline", "Kamera"], ["package-variant-closed", "Zásilka"], ["tools", "Dílna"],
-    ];
+    const iconNames = TEMPLATE_ICON_CHOICES;
     let content = "";
     if (category === "blocks") content = this._renderTemplateBlockPalette();
     else if (category === "text") content = [
@@ -6674,7 +6706,11 @@ export const devicesMixin = {
   },
 
   _templateVariableMeta(variable, index = 0) {
-    const [icon, label] = variable;
+    // A third element declares what the slot actually holds when its label
+    // cannot say so: an icon variable takes an mdi name rather than a reading,
+    // so it gets the designer's own gallery instead of a bare text box - and no
+    // entity picker at all, because no entity produces an icon name.
+    const [icon, label, valueKind] = variable;
     const normalized = String(label || "").toLocaleLowerCase("cs");
     // Word-bounded, not a bare substring test: "čas" as a plain .includes()
     // also matches inside "počasí" ("po-ČAS-í"), which silently turned
@@ -6705,9 +6741,12 @@ export const devicesMixin = {
       label,
       key: `${index}-${String(label || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
       automatic,
-      description: automatic
-        ? "Interní údaj Home Assistantu – není potřeba vybírat vlastní entitu."
-        : descriptions[descriptionKey] || `Vyberte entitu Home Assistantu, která poskytuje hodnotu „${label}“.`,
+      valueKind: String(valueKind || ""),
+      description: valueKind === "icon"
+        ? "Vyberte ikonu z knihovny Designeru."
+        : automatic
+          ? "Interní údaj Home Assistantu – není potřeba vybírat vlastní entitu."
+          : descriptions[descriptionKey] || `Vyberte entitu Home Assistantu, která poskytuje hodnotu „${label}“.`,
     };
   },
 
@@ -6949,6 +6988,46 @@ export const devicesMixin = {
     return meta.automatic ? `internal:${meta.key}` : this._suggestTemplateEntity(meta);
   },
 
+  // The gallery an icon variable picks from: the designer's own set, so a sign
+  // built here and one built by dropping an icon element in the designer can be
+  // made to match. The free-text box stays underneath it - the gallery is the
+  // easy road, not a fence around the thirty-six names in it.
+  _renderTemplateIconChoices(bindingKey, current) {
+    if (this._templateIconPickerKey !== bindingKey) return "";
+    return `<div class="template-icon-gallery" role="listbox">${TEMPLATE_ICON_CHOICES.map(([icon, label]) => `
+      <button type="button" role="option" aria-selected="${icon === current}" class="template-icon-choice ${icon === current ? "is-selected" : ""}"
+        data-template-icon-choice="${this._escape(`${bindingKey}|${icon}`)}" title="${this._escape(label)}">
+        <ha-icon icon="mdi:${this._escape(icon)}"></ha-icon><span>${this._escape(label)}</span>
+      </button>`).join("")}</div>`;
+  },
+
+  // Swatches rather than a text box, for the same reason the icon slot gets a
+  // gallery: the panel has exactly four inks, so every legal answer fits on one
+  // row and typing one of them in is only a way of getting it wrong.
+  _renderTemplatePlateSetting(bindingKey, current) {
+    const chosen = String(current || "yellow").toLowerCase();
+    return `<div class="template-plate-setting" role="listbox">${TEMPLATE_PLATE_CHOICES.map(([value, label, swatch]) => `
+      <button type="button" role="option" aria-selected="${value === chosen}" class="template-plate-choice ${value === chosen ? "is-selected" : ""}"
+        data-template-icon-choice="${this._escape(`${bindingKey}|${value}`)}" title="${this._escape(label)}">
+        <i style="background:${swatch}"></i><span>${this._escape(label)}</span>
+      </button>`).join("")}</div>
+      <small class="template-plate-help">Žlutá na tříbarevném displeji vyjde černá - žlutý pigment tam není. Bílá znamená bez plochy, jen ikona na papíře.</small>`;
+  },
+
+  _renderTemplateIconSetting(bindingKey, meta, current) {
+    const open = this._templateIconPickerKey === bindingKey;
+    const known = TEMPLATE_ICON_CHOICES.find(([icon]) => icon === current);
+    return `<div class="template-icon-setting">
+      <button type="button" class="template-icon-current ${open ? "is-open" : ""}" data-template-icon-picker="${this._escape(bindingKey)}" aria-expanded="${open}">
+        <ha-icon icon="mdi:${this._escape(current || meta.icon)}"></ha-icon>
+        <span><strong>${this._escape(known ? known[1] : (current || "Vyberte ikonu"))}</strong><small>${this._escape(current || "z knihovny Designeru")}</small></span>
+        <ha-icon icon="mdi:${open ? "chevron-up" : "chevron-down"}"></ha-icon>
+      </button>
+      ${this._renderTemplateIconChoices(bindingKey, current)}
+      <label class="template-literal-setting"><span>Nebo název MDI ikony</span><input type="text" data-template-literal-value="${this._escape(bindingKey)}" value="${this._escape(current)}" placeholder="cart-outline"></label>
+    </div>`;
+  },
+
   _renderTemplateVariableSetting(template, variable, index) {
     const meta = this._templateVariableMeta(variable, index);
     const binding = this._templateBinding(template, meta);
@@ -6957,17 +7036,35 @@ export const devicesMixin = {
       ? binding.slice("literal:".length)
       : (template?.manualValues && binding && !binding.includes(".") && !binding.startsWith("internal:") ? binding : "");
     const entityBinding = binding && !binding.startsWith("literal:") && binding.includes(".") ? binding : "";
-    return `<section class="template-variable-setting ${meta.automatic ? "is-automatic" : ""}">
+    const bindingKey = `${template?.id}:${meta.key}`;
+    const isIcon = meta.valueKind === "icon";
+    const isPlate = meta.valueKind === "plate";
+    // A template whose values are all typed in has nothing to bind, so the
+    // picker and the two lines of "or choose an entity" help underneath every
+    // field are a wall in front of two words. See sign.js.
+    const manualOnly = isIcon || isPlate || !!template?.manualOnly;
+    return `<section class="template-variable-setting ${meta.automatic ? "is-automatic" : ""} ${manualOnly ? "is-manual-only" : ""}">
       <div class="template-variable-preview ${meta.automatic ? "is-automatic" : ""}" aria-label="Náhled proměnné ${this._escape(meta.label)}">
-        <ha-icon icon="mdi:${meta.icon}"></ha-icon><strong>${this._escape(sample)}</strong><small>${this._escape(meta.label)}</small>
+        ${isIcon
+          ? `<ha-icon class="template-variable-preview-glyph" icon="mdi:${this._escape(manualValue || meta.icon)}"></ha-icon><small>${this._escape(meta.label)}</small>`
+          : `<ha-icon icon="mdi:${this._escape(meta.icon)}"></ha-icon><strong>${this._escape(sample)}</strong><small>${this._escape(meta.label)}</small>`}
       </div>
       <div class="template-variable-setting-content">
-        <div class="template-variable-setting-head"><div><strong>${this._escape(meta.label)}</strong><small>${this._escape(meta.description)}</small></div></div>
+        <div class="template-variable-setting-head"><div><strong>${this._escape(meta.label)}</strong><small>${this._escape(
+          // meta writes its description from the label alone, so on a template
+          // that binds nothing it still offers to find an entity for a slot
+          // that has no entity to find.
+          isPlate ? "Barva plochy pod ikonou." : manualOnly && !isIcon ? "Text, který se vytiskne na displej." : meta.description,
+        )}</small></div></div>
         ${meta.automatic
           ? `<div class="template-internal-value"><ha-icon icon="mdi:home-assistant"></ha-icon><span><strong>Automaticky z Home Assistantu</strong><small>Interní systémová proměnná</small></span><ha-icon icon="mdi:check-circle"></ha-icon></div>`
-          : `${template?.manualValues ? `<label class="template-literal-setting"><span>Ruční hodnota</span><input type="text" data-template-literal-value="${this._escape(`${template.id}:${meta.key}`)}" value="${this._escape(manualValue)}" placeholder="${this._escape(sample)}"></label><small class="template-picker-help">Vyplněná ruční hodnota má přednost. Pole můžete nechat prázdné a níže vybrat entitu.</small>` : ""}
-             <ha-selector data-template-entity-picker="${this._escape(`${template.id}:${meta.key}`)}" data-template-default-entity="${this._escape(entityBinding)}"></ha-selector>
-             <small class="template-picker-help">${template?.manualValues ? "Nebo vyberte proměnnou z entity či pomocníka Home Assistantu." : "Vyberte senzor, pomocníka nebo jinou entitu odpovídající tomuto údaji."}</small>`}
+          : isIcon
+            ? this._renderTemplateIconSetting(bindingKey, meta, manualValue)
+          : isPlate
+            ? this._renderTemplatePlateSetting(bindingKey, manualValue)
+            : `${template?.manualValues ? `<label class="template-literal-setting"><span>${manualOnly ? "Hodnota" : "Ruční hodnota"}</span><input type="text" data-template-literal-value="${this._escape(bindingKey)}" value="${this._escape(manualValue)}" placeholder="${this._escape(sample)}"></label>${manualOnly ? "" : `<small class="template-picker-help">Vyplněná ruční hodnota má přednost. Pole můžete nechat prázdné a níže vybrat entitu.</small>`}` : ""}
+               ${manualOnly ? "" : `<ha-selector data-template-entity-picker="${this._escape(bindingKey)}" data-template-default-entity="${this._escape(entityBinding)}"></ha-selector>
+               <small class="template-picker-help">${template?.manualValues ? "Nebo vyberte proměnnou z entity či pomocníka Home Assistantu." : "Vyberte senzor, pomocníka nebo jinou entitu odpovídající tomuto údaji."}</small>`}`}
       </div>
     </section>`;
   },
