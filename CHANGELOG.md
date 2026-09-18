@@ -2,6 +2,18 @@
 
 Všechny významné změny a historie verzí v projektu DRATEK eInk.
 
+## [1.0.8] - 2026-09-18
+
+### Opraveno
+
+- Bluetooth přenos z Home Assistantu na čtyřbarevné displeje 296×128 (SDK 46) používá potvrzované GATT zápisy stejně jako SDK 51. Předchozí režim pouze zařadil bloky k odeslání a mohl skončit úspěchem bez změny obrazu.
+- Doplněny regresní testy přenosu všech 40 bloků, chybějícího potvrzení uprostřed přenosu a dokončení s poslední chybějící GATT odpovědí a potvrzením displeje.
+
+### Ověření
+
+- Testovací přenos na SDK 46 přes ESP32 gateway přijal všech 40 bloků a displej potvrdil přijetí celého obrazu. Přímý přenos přes Home Assistant po úpravě nebyl na hardwaru ověřen.
+- Firmware gateway zůstává 0.1.76; aktualizuje se integrace Home Assistantu.
+
 ## [1.0.2-beta.1] - 2026-09-10
 
 Předběžné vydání (pre-release). Obsahem je totožné s 1.0.1 — jediný rozdíl je jedna věc:

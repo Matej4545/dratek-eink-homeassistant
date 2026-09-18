@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
-WRITE_ACK_SDK_TYPES = {51}
+WRITE_ACK_SDK_TYPES = {46, 51}
 PACED_LARGE_STREAM_SDK_TYPES = {
     136, 139, 142, 155,
     296, 299, 302, 310, 315, 318,
@@ -440,8 +440,9 @@ class DratekTransfer:
                 streaming_mode = bool(int(software_version or 0) & 0x80)
                 if streaming_mode and "write" not in write_char.properties:
                     self.log("Display does not expose acknowledged block writes; using unconfirmed fallback stream.")
-                # Only SDK type 51 is known to require an ATT response for every
-                # image block before its controller commits the frame.  Requiring
+                # Use acknowledged writes for the small SDK 46/51 controllers.
+                # SDK 46 can silently ignore an unconfirmed stream even after
+                # every block has been queued by Home Assistant. Requiring
                 # responses for every streaming model makes BlueZ wait about
                 # 2.5 seconds per block (17 minutes for a 96 kB 800x480 image).
                 # Other models use their write-without-response characteristic,

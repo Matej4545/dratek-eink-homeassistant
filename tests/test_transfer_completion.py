@@ -26,7 +26,7 @@ class TransferCompletionTests(unittest.TestCase):
         self.assertIn("_next_block(payload, block_size, block_number)", section)
         self.assertIn("await self._wait_for_next_transfer_response(", section)
         self.assertIn("Display requested retransmission from block", section)
-        self.assertIn("WRITE_ACK_SDK_TYPES = {51}", source)
+        self.assertIn("WRITE_ACK_SDK_TYPES = {46, 51}", source)
         self.assertIn("PACED_LARGE_STREAM_SDK_TYPES = {", source)
         self.assertIn("299,", source)
         self.assertIn("315,", source)
