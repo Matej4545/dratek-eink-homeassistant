@@ -448,7 +448,10 @@ const TEMPLATE_BLOCK_KINDS = {
     repeat: {
       path: "footer", label: "Pole", add: "Přidat pole", max: 4,
       template: { label: "POPISEK", value: "Hodnota" },
-      fields: [LABEL_FIELD, VALUE_FIELD, ICON_FIELD],
+      fields: [LABEL_FIELD, VALUE_FIELD, ICON_FIELD,
+        { key: "entityId", kind: "entity", label: "Entita Home Assistantu" },
+        { key: "entityAttribute", kind: "text", label: "Atribut (volitelné)" },
+      ],
     },
   },
 
@@ -525,6 +528,9 @@ export const templateBlocksMixin = {
     const stored = item?.block;
     if (!stored || typeof stored !== "object") return null;
     const row = structuredClone(stored);
+    if (Array.isArray(row.footer)) row.footer.forEach((cell) => {
+      if (cell.entityId) cell.value = this._templateElementEntityText(cell) ?? cell.value;
+    });
     if (row.compact === undefined && pixelHeight > 0) row.compact = pixelHeight < 46;
     return row;
   },
@@ -556,7 +562,7 @@ export const templateBlocksMixin = {
     const markup = row.footer
       ? this._layoutTemplateFooter(row, w, h, h).join("")
       : this._renderTemplateBlock(row, { x: 0, y: 0, w, h, fullX: 0, fullW: w });
-    return `<svg class="template-block-visual" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">${markup}</svg>`;
+    return `<svg class="template-block-visual" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${markup}</svg>`;
   },
 
   // The bitmap a display receives is not a screenshot of the preview: the send
@@ -704,7 +710,7 @@ export const templateBlocksMixin = {
           + ` data-template-editor-tool="block" data-template-editor-icon="${this._escape(spec.icon)}"`
           + ` data-template-editor-preset="${this._escape(JSON.stringify(preset))}"`
           + ` title="Vložit ${this._escape(spec.label)} - ${this._escape(spec.hint)}">`
-          + `<span class="template-palette-visual template-block-tile">${preview}</span>`
+          + `<span class="template-palette-visual template-block-tile" data-template-palette-bitmap="${this._escape(JSON.stringify({ type: "block", ...preset }))}">${preview}</span>`
           + `<span>${this._escape(spec.label)}</span></button>`;
       }).join("");
       return `<div class="template-block-group"><small>${this._escape(group.title)}</small>`
@@ -737,6 +743,16 @@ export const templateBlocksMixin = {
     const value = this._templateBlockValueAt(row, path);
     const id = this._escape(path);
     const label = this._escape(field.label);
+    // The picker and the plain field are both offered for the same reason the
+    // element inspector offers both (panel-inspector.mixin.js): the selector
+    // cannot name an entity Home Assistant has not loaded yet, and a template
+    // is routinely designed before the sensor behind it exists.
+    if (field.kind === "entity") {
+      return `<label class="template-property-wide template-ha-binding"><span>${label}</span>`
+        + `<ha-selector data-template-block-entity="${id}"></ha-selector>`
+        + `<input type="text" data-template-block-prop="${id}" value="${this._escape(value || "")}" placeholder="sensor.teplota">`
+        + `</label>`;
+    }
     if (field.kind === "bool") {
       return `<label class="template-block-check"><input type="checkbox" data-template-block-prop="${id}"`
         + ` data-template-block-kind="bool" ${value ? "checked" : ""}><span><i></i>${label}</span></label>`;
@@ -918,6 +934,17 @@ export const templateBlocksMixin = {
   _bindTemplateBlockInspector() {
     const root = this.shadowRoot;
     if (!root) return;
+    root.querySelectorAll("[data-template-block-entity]").forEach((picker) => {
+      const path = picker.dataset.templateBlockEntity;
+      picker.hass = this._hass;
+      picker.selector = this._variableEntitySelector();
+      picker.value = this._templateBlockValueAt(this._templateEditorElement()?.block, path) || "";
+      picker.required = false;
+      picker.addEventListener("value-changed", (event) => {
+        event.stopPropagation();
+        this._applyTemplateBlockEdit(path, event.detail?.value || "", "text");
+      });
+    });
     root.querySelectorAll("[data-template-block-prop]").forEach((input) => {
       const kind = input.dataset.templateBlockKind || "text";
       const path = input.dataset.templateBlockProp;

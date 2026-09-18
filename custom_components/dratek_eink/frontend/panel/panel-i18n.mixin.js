@@ -907,6 +907,15 @@ const EN_EXACT = new Map(Object.entries({
   "Barvy podporované displejem": "Colours supported by the display",
   "Bez vybrané entity se používá ručně nastavená hodnota.": "Without a selected entity the manually set value is used.",
   "Bílá barva": "White",
+  "Zobrazit ikonu": "Show the icon",
+  "Ikona na barevné ploše vlevo, popisek vpravo. Po odškrtnutí ikona zmizí a popisek se roztáhne přes celou ceduli.": "An icon on a coloured plate on the left, the label on the right. Unticked, the icon goes and the label spreads across the whole sign.",
+  "Ikona na barevné ploše a popisek vedle ní. Obojí se vypisuje ručně, displej tedy nepotřebuje žádnou entitu ani integraci.": "An icon on a coloured plate with a label beside it. Both are typed in by hand, so the display needs no entity and no integration.",
+  "V Nastavit vyplňte Ruční hodnotu u pole Ikona názvem MDI ikony bez předpony mdi: - například cart, fridge-outline nebo tools. Funguje kterákoli ikona z pictogrammers.com/library/mdi/.": "In Configure, fill the Manual value of the Icon field with an MDI icon name without the mdi: prefix - for example cart, fridge-outline or tools. Any icon from pictogrammers.com/library/mdi/ works.",
+  "Do pole Popisek napište, jak se oddělení jmenuje.": "Type what the aisle is called into the Label field.",
+  "Přepínačem Zobrazit ikonu ceduli přepnete mezi obrázkem s popiskem a samotným popiskem přes celou plochu.": "The Show the icon switch flips the sign between a picture with a label and the label alone across the whole board.",
+  "Barevná plocha pod ikonou je žlutá na čtyřbarevných displejích a černá s bílou ikonou na tříbarevných - žlutá na nich neexistuje a červená plocha vedle červeného textu by soupeřila o pozornost. Popisek se automaticky zmenší, aby se vešel celý; delší název oddělení proto vyjde menším písmem, ne přetečený.": "The plate under the icon is yellow on four-colour displays and black with a white icon on three-colour ones - they have no yellow, and a red plate beside red type would compete for attention. The label shrinks to fit, so a longer aisle name comes out in smaller type rather than overflowing.",
+  "Nákupní oddělení": "Shopping aisle",
+  "Enter vloží nový řádek. Text se na displeji vysází na tolik řádků, kolik jich napíšete.": "Enter inserts a new line. The display sets the text on as many lines as you type.",
   "Běžná / Původní cena": "Regular / original price",
   "Běžný text": "Regular text",
   "Celý displej": "Whole display",
@@ -1259,6 +1268,7 @@ const EN_EXACT = new Map(Object.entries({
   "Stav serveru": "Server status",
   "Zahrada": "Garden",
   "Cenovka": "Price tag",
+  "Cedule s ikonou": "Sign with icon",
 
   // The data a template needs, listed in the catalog card's tooltip.
   "Teplota": "Temperature",

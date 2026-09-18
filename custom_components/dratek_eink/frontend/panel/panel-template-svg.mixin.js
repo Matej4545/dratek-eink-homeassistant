@@ -388,6 +388,9 @@ export const templateSvgMixin = {
       if (row.icon && !WEATHER_ICON_TO_CONDITION.has(row.icon)) names.add(row.icon);
       if (row.band?.icon && !WEATHER_ICON_TO_CONDITION.has(row.band.icon)) names.add(row.band.icon);
       if (row.stat?.icon && !WEATHER_ICON_TO_CONDITION.has(row.stat.icon)) names.add(row.stat.icon);
+      // A sign names its glyph by hand in the template settings, so unlike
+      // every other row here the name is not known until the user types it.
+      if (row.sign?.icon && !WEATHER_ICON_TO_CONDITION.has(row.sign.icon)) names.add(row.sign.icon);
       cells(row.footer);
       cells(row.list);
       cells(row.grid);
@@ -1318,7 +1321,7 @@ export const templateSvgMixin = {
     return parts;
   },
 
-  _layoutTemplateFooter(footerRow, width, height, footerHeight, collector) {
+  _layoutTemplateFooter(footerRow, width, height, footerHeight, collector, valueSlots = null) {
     if (!footerRow || footerHeight <= 0) return [];
     if (collector && footerRow.__rowIndex !== undefined) {
       collector.push({ rowIndex: footerRow.__rowIndex, box: { x: 0, y: height - footerHeight, w: width, h: footerHeight } });
@@ -1336,6 +1339,14 @@ export const templateSvgMixin = {
     const cellWidth = width / (cells.length || 1);
     cells.forEach((cell, index) => {
       const cx = cellWidth * (index + 0.5);
+      const valueText = (value, x, y, size, options, prefix = "") => {
+        const markup = this._svgText(value, x, y, size, options);
+        if (!valueSlots || !cell.entityId) return markup;
+        const id = `footer-value-${index}`;
+        valueSlots.push({ id, index, cx: x, cy: y, size, ...options, prefix });
+        // Keep an addressable run even when its fallback is empty.
+        return (markup || this._svgText(" ", x, y, size, options)).replace("<text ", `<text id="${id}" `);
+      };
       if (index > 0) {
         parts.push(`<rect x="${(cellWidth * index).toFixed(2)}" y="${(top + footerHeight * 0.15).toFixed(2)}" width="1" height="${(footerHeight * 0.7).toFixed(2)}" fill="#ffffff" opacity="0.5"></rect>`);
       }
@@ -1346,18 +1357,18 @@ export const templateSvgMixin = {
       // one bold line so the graph/QR/dial above remains the visual priority.
       if (footerRow.compact && !cell.icon) {
         const compactText = [cell.label, cell.value].filter((part) => part != null && part !== "").join("  ·  ");
-        parts.push(this._svgText(compactText, cx, top + footerHeight * 0.5, Math.max(10, footerHeight * 0.48), {
+        parts.push(valueText(compactText, cx, top + footerHeight * 0.5, Math.max(10, footerHeight * 0.48), {
           color: "#ffffff", bold: false, minSize: 9, maxWidth: cellWidth * 0.92,
-        }));
+        }, cell.label ? `${cell.label}  ·  ` : ""));
         return;
       }
       if (cell.icon) {
         parts.push(this._svgText(cell.label, cx, top + footerHeight * 0.2, labelSize, { color: "#ffffff", bold: true, maxWidth: cellWidth * 0.9 }));
         parts.push(this._svgIcon(cell.icon, cx, top + footerHeight * 0.5, footerHeight * 0.3, "#ffffff"));
-        parts.push(this._svgText(cell.value, cx, top + footerHeight * 0.82, valueSize, { color: "#ffffff", bold: true, maxWidth: cellWidth * 0.9 }));
+        parts.push(valueText(cell.value, cx, top + footerHeight * 0.82, valueSize, { color: "#ffffff", bold: true, maxWidth: cellWidth * 0.9 }));
       } else {
         parts.push(this._svgText(cell.label, cx, top + footerHeight * 0.32, labelSize, { color: "#ffffff", bold: true, maxWidth: cellWidth * 0.9 }));
-        parts.push(this._svgText(cell.value, cx, top + footerHeight * 0.7, valueSize, { color: "#ffffff", bold: true, maxWidth: cellWidth * 0.9 }));
+        parts.push(valueText(cell.value, cx, top + footerHeight * 0.7, valueSize, { color: "#ffffff", bold: true, maxWidth: cellWidth * 0.9 }));
       }
     });
     return parts;
@@ -1399,6 +1410,7 @@ export const templateSvgMixin = {
     if (row.radarMap) return this._blockRadarMap(row, box);
     if (row.pricetag) return this._blockPriceTag(row, box);
     if (row.brandLogo) return this._blockBrandLogo(row, box);
+    if (row.sign) return this._blockSign(row, box);
     if (row.text != null) return this._blockText(row, box);
     return "";
   },
@@ -1504,6 +1516,66 @@ export const templateSvgMixin = {
       color: this._templateInk(row.color),
       maxWidth: box.w,
     });
+  },
+
+  // A department sign: one big glyph on a coloured plate, the name beside it.
+  //
+  // The plate is one of the few places on this panel where a solid colour area
+  // earns its ink. Yellow is a surface colour here, never a type colour (see the
+  // outline _svgText gives yellow glyphs), so it carries a picture rather than
+  // words. A three-colour panel has no yellow at all, and a red plate beside red
+  // type reads as two headlines competing, so there the plate is black with the
+  // glyph knocked out white - the same sign, in the ink that panel owns.
+  //
+  // With the plate switched off the name takes the whole board. That is a real
+  // layout of its own, not a picture with a gap where the icon was: the type is
+  // sized against the full width, so a two-word department name is legible from
+  // across an aisle instead of staying at the size it had in half the space.
+  _blockSign(row, box) {
+    const sign = row.sign || {};
+    const text = sign.text == null ? "" : String(sign.text);
+    const withIcon = sign.showIcon !== false && !!sign.icon;
+    const parts = [];
+    // The frame is drawn inside the row, on whole pixels and with an odd-width
+    // stroke centred on its own path, so the panel prints a closed rectangle
+    // rather than two grey edges where a half-pixel landed on the threshold.
+    const stroke = sign.frame === false ? 0 : Math.max(2, Math.round(Math.min(box.w, box.h) * 0.025));
+    if (stroke) {
+      parts.push(`<rect x="${(box.x + stroke / 2).toFixed(2)}" y="${(box.y + stroke / 2).toFixed(2)}"`
+        + ` width="${Math.max(1, box.w - stroke).toFixed(2)}" height="${Math.max(1, box.h - stroke).toFixed(2)}"`
+        + ` fill="none" stroke="${BLACK}" stroke-width="${stroke}"></rect>`);
+    }
+    const inner = {
+      x: box.x + stroke,
+      y: box.y + stroke,
+      w: Math.max(1, box.w - stroke * 2),
+      h: Math.max(1, box.h - stroke * 2),
+    };
+    let textX = inner.x;
+    let textWidth = inner.w;
+    if (withIcon) {
+      // Square, and never more than half the board: a plate that grew with the
+      // panel would swallow a wide landscape tag and leave the name in a strip.
+      const plate = Math.max(1, Math.min(inner.h, inner.w * 0.5));
+      const plateInk = this._displaySupportsYellow?.() ? YELLOW : BLACK;
+      parts.push(`<rect x="${inner.x.toFixed(2)}" y="${inner.y.toFixed(2)}"`
+        + ` width="${plate.toFixed(2)}" height="${inner.h.toFixed(2)}" fill="${plateInk}"></rect>`);
+      parts.push(this._svgIcon(sign.icon, inner.x + plate / 2, inner.y + inner.h / 2, plate * 0.68,
+        plateInk === YELLOW ? BLACK : "#ffffff"));
+      textX = inner.x + plate;
+      textWidth = Math.max(1, inner.w - plate);
+    }
+    if (!text) return parts.join("");
+    // _svgText shrinks to fit maxWidth, so this is the size the name is allowed
+    // to reach, not the size it will take: a short word fills the board and a
+    // long one steps down instead of running off the edge.
+    const fontSize = Math.max(10, Math.min(inner.h * (withIcon ? 0.42 : 0.56), textWidth * 0.32));
+    parts.push(this._svgText(text, textX + textWidth / 2, inner.y + inner.h / 2, fontSize, {
+      bold: sign.bold !== false,
+      color: this._templateInk(sign.color),
+      maxWidth: textWidth * 0.88,
+    }));
+    return parts.join("");
   },
 
   _blockList(row, box) {

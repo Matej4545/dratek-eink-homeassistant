@@ -713,10 +713,10 @@ class FrontendToolLibraryTests(unittest.TestCase):
         self.assertIn('${this._displaySettingsView === "templates" ? this._renderDisplayTemplatesSection(device) : ""}', self.source)
         self.assertNotIn('return this._renderDisplayTemplatesPage(device)', self.source)
         self.assertIn('class="display-template-grid"', self.source)
-        # 25 production templates including the custom photo card and the
-        # built-in brand-logo broadcast. Hardware colour calibration targets
-        # must not leak into the user catalog.
-        self.assertEqual(self.source.count('number: "'), 25)
+        # 26 production templates including the custom photo card, the built-in
+        # brand-logo broadcast and the department sign. Hardware colour
+        # calibration targets must not leak into the user catalog.
+        self.assertEqual(self.source.count('number: "'), 26)
 
         self.assertIn("variables: [", self.source)
         # A promotion is a decision rather than a reading, so a price tag carries a
@@ -1730,7 +1730,10 @@ class FrontendToolLibraryTests(unittest.TestCase):
         self.assertNotIn("Nastavení pracovní plochy", self.source)
         self.assertNotIn("Vyberte oblast v náhledu pro úpravu rozměrů a orientace.", self.source)
         self.assertIn("const toolPreview = (type, settings) =>", self.source)
-        self.assertIn("this._renderTemplateComponentSvg(item, 296, 128)", self.source)
+        # The tile is drawn at the viewport the designer is actually working in,
+        # not at a hard-coded 296x128: a sample for an 800x480 panel laid out at
+        # 296x128 is already the wrong shape before it is even rasterised.
+        self.assertIn("this._renderTemplateComponentSvg(item, canvas.width, canvas.height)", self.source)
         self.assertIn("_isTemplateComponentKind(item.type)", self.source)
         self.assertIn("template-palette-shape-sample", self.source)
         self.assertIn("template-palette-text-sample", self.source)

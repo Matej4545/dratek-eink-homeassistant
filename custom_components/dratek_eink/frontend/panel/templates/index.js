@@ -1,3 +1,4 @@
+import { template as sign } from "./sign.js?v=sign-board-1";
 import { template as dratekLogo } from "./dratek_logo.js";
 // One file per template (see ./weather.js, ./price.js, ...), each carrying
 // its catalog entry, Home Assistant setup guide and SVG design together.
@@ -31,6 +32,9 @@ import { template as garden } from "./garden.js?v=compact-landscape-content-6";
 import { template as price } from "./price.js?v=pricetag-barcode-rework-1";
 
 export const DISPLAY_TEMPLATES = [
+  // First on purpose: it is the one template that needs nothing set up,
+  // so it is what a brand-new display can be sent within a minute.
+  sign,
   dratekLogo,
   customImage,
   weather,

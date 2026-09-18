@@ -14,7 +14,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageMath
 from . import svg_blocks, svg_render
 from .const import DEVICE_SIZES, SDK_MODELS
 from .meteoradar import fit_to_size
-from .svg_text import svg_text as build_text_element
+from .svg_text import MIN_READABLE_FONT_SIZE, svg_text as build_text_element
 
 # The single black/white/red rule, shared verbatim with the panel's
 # _quantizeEinkPixel in panel-template-svg.mixin.js. Preview and payload have to
@@ -1244,6 +1244,62 @@ def _render_bound_calendar(binding: dict[str, Any], value: str, force_transparen
     return output
 
 
+def _render_bound_footer(binding: dict[str, Any], value: str) -> Image.Image:
+    """Refresh the captured footer artwork using its original text geometry."""
+    width = max(1, round(float(binding.get("w", 1))))
+    height = max(1, round(float(binding.get("h", 1))))
+    try:
+        values = json.loads(value)
+        if not isinstance(values, list):
+            values = []
+    except (ValueError, TypeError):
+        values = []
+    document = str(binding.get("svg_template") or "")
+    runs = []
+    for slot in binding.get("slots", []):
+        index = int(slot.get("index", 0))
+        cells = binding.get("cells", [])
+        fallback = cells[index].get("value", "") if index < len(cells) else ""
+        text = str(slot.get("prefix") or "") + str(values[index] if index < len(values) else fallback)
+        runs.append((slot, text))
+        # minSize rides along because the compact footer drops its floor to 9:
+        # re-fitting the same string against svg_text.py's own default of 10
+        # would pick a different font size than the panel just drew.
+        replacement = build_text_element(
+            text, float(slot["cx"]), float(slot["cy"]), float(slot["size"]),
+            bold=bool(slot.get("bold")), color=str(slot.get("color") or "#ffffff"),
+            max_width=float(slot.get("maxWidth", 0)),
+            min_size=float(slot.get("minSize", MIN_READABLE_FONT_SIZE)),
+            element_id=str(slot["id"]),
+        )
+        document = _replace_svg_element_by_id(document, str(slot["id"]), replacement)
+    image = svg_render.rasterize_svg(document, width, height) if document else None
+    if image is None:
+        # The browser captures the value-free red bar, labels and icons too,
+        # so installations without an SVG runtime still retain the artwork.
+        background = str(binding.get("background_image") or "")
+        image = _decode_data_image(background).resize((width, height)).convert("RGBA") if background else Image.new("RGBA", (width, height), (227, 27, 27, 255))
+        for slot, text in runs:
+            run_width = max(1, min(width, round(float(slot.get("maxWidth", width)) or width)))
+            run_height = max(1, round(float(slot["size"]) * 1.5))
+            layer = _render_bound_text({
+                "w": run_width, "h": run_height, "fontSize": slot["size"],
+                "minFontSize": 7, "bold": bool(slot.get("bold")),
+                "color": "white", "backgroundColor": "transparent",
+                "textAlign": "center", "verticalAlign": "middle",
+            }, text, True)
+            # alpha_composite refuses a box that leaves the image, and a footer
+            # cell centred near an edge produces exactly that, so the run is
+            # clamped into the bar rather than dropped.
+            left = max(0, min(width - run_width, round(float(slot["cx"]) - run_width / 2)))
+            top = max(0, min(height - run_height, round(float(slot["cy"]) - run_height / 2)))
+            if run_height <= height:
+                image.alpha_composite(layer, (left, top))
+    image = image.convert("RGBA")
+    rotation = float(binding.get("rotation", 0) or 0)
+    return image.rotate(-rotation, expand=True) if rotation else image
+
+
 def _is_text_binding(binding: dict[str, Any]) -> bool:
     """A binding drawn as a single run of text (the default when no type is set)."""
     return binding.get("type") in (None, "", "text")
@@ -1253,6 +1309,8 @@ def _render_binding_layer(
     binding: dict[str, Any], value: str, force_transparent: bool = False, preserve_yellow: bool = False
 ) -> Image.Image:
     """Rasterise one binding to its own RGBA layer."""
+    if binding.get("type") == "footer":
+        return _render_bound_footer(binding, value)
     if binding.get("type") == "chart":
         return _render_bound_chart(binding, value, force_transparent)
     if binding.get("type") == "series":

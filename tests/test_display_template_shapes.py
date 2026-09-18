@@ -74,6 +74,12 @@ SINGLE_ROW_TEMPLATES = {
     # The logo template is the lockup and nothing else - a heading or a footer
     # over the brand mark would be exactly the
     # thing it exists not to have.
+    #
+    # A sign is one board: a glyph on a plate with the name of the aisle beside
+    # it, edge to edge. A heading over it would be a second name for the same
+    # thing, and a footer under it would be data on the one template whose whole
+    # point is that it has none.
+    "sign",
 }
 
 

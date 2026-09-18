@@ -673,7 +673,7 @@ export const templateComponentsMixin = {
       ? `<defs>${this._componentDefs.join("")}</defs>`
       : "";
     this._componentDefs = [];
-    return `<svg class="template-component-visual" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"`
+    return `<svg class="template-component-visual" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet"`
       + ` font-family="${COMPONENT_FONT}" aria-hidden="true">${defs}${plate}${body}</svg>`;
   },
 

@@ -2,6 +2,26 @@
 
 Všechny významné změny a historie verzí v projektu DRATEK eInk.
 
+## [1.0.9-beta.3] - 2026-09-18
+
+### Přidáno
+
+- Nová šablona **Cedule s ikonou**, v katalogu na prvním místě. Ikona na barevné ploše vlevo, popisek vpravo; obojí se vypisuje ručně, takže displej nepotřebuje žádnou entitu ani integraci. Ikonu lze zadat jménem kterékoli MDI ikony, popisek je volný text a přepínač „Zobrazit ikonu“ ceduli přepne na samotný popisek přes celou plochu. Plocha pod ikonou je žlutá na čtyřbarevných displejích a černá s bílou ikonou na tříbarevných – žlutá na nich neexistuje a červená plocha vedle červeného textu by soupeřila o pozornost.
+- Textový prvek v Designeru může mít víc řádků – Enter v poli Obsah vloží nový řádek. Náhled, odeslaný obraz i automatická aktualizace vysází text na tolik řádků, kolik jich napíšete.
+- Buňka prvku Patička displeje umí číst entitu Home Assistantu (volitelně i její atribut). Hodnota se propíše do náhledu, do ručního odeslání i do automatických aktualizací – patička se nově obnovuje jako každý jiný svázaný prvek.
+
+### Opraveno
+
+- Náhledy prvků a bloků v paletě Designeru už nejsou roztažené ani smrsknuté. Tlačítko se vykreslí v rozlišení zvoleného displeje, projde stejným vykreslovačem jako odeslaný obraz a obarví se paletou, kterou displej opravdu tiskne – ukázka je tedy tvarem i barvou tím, co na displeji vznikne.
+- Patička vykreslená na pozadí bez SVG rasterizéru se vejde do červeného pruhu i tehdy, když je buňka vystředěná u jeho okraje; dřív by taková aktualizace skončila chybou.
+- Patička se měří proti rozlišení, ve kterém se displej opravdu odesílá, ne proti výchozí velikosti daného SDK. Na displejích s vlastním nastaveným rozlišením by jinak přistála na špatné souřadnice.
+
+### Ověření
+
+- 1 200 testů integrace, včetně nových kontrol vykreslení patičky, náhledů palety, víceřádkového textu a nové šablony.
+- Ověřeno v lokálním náhledu panelu: všech 23 náhledů bloků má pixel na pixel rozměr, který blok na displeji zabere; dvouřádkový text se vykreslí do dvou řádků v náhledu i na plátně odesílaného obrazu; buňka patičky svázaná s entitou zobrazí její živou hodnotu; cedule vykreslí ikonu i popisek a po odškrtnutí přepínače popisek sám přes celou plochu.
+- Firmware gateway zůstává 0.1.76. Na fyzickém displeji zatím neověřeno.
+
 ## [1.0.9-beta.2] - 2026-09-18
 
 ### Opraveno

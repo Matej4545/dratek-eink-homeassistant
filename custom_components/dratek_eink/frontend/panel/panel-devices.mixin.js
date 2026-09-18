@@ -1423,6 +1423,12 @@ export const devicesMixin = {
   _templateLiveDataChanged(previousHass, nextHass) {
     if (!previousHass?.states || !nextHass?.states || this._activeTab !== "display-settings") return false;
     const watched = new Set(Object.values(this._displayTemplateBindings || {}).filter((value) => typeof value === "string" && !value.startsWith("internal:") && !value.startsWith("literal:")));
+    const templates = this._currentDisplayTemplateSvgRequest?.()?.templates || [];
+    for (const template of templates) {
+      for (const item of this._templateEditorElementsFor(template)) {
+        for (const cell of item.block?.footer || []) if (cell.entityId) watched.add(cell.entityId);
+      }
+    }
     Object.keys(nextHass.states)
       .filter((entityId) => /^(sensor|binary_sensor)\.(?:current_)?(?:buy|spot)_.*electricity|^sensor\.(?:buy|spot)_(?:cheapest|most_expensive)_electricity/.test(entityId))
       .forEach((entityId) => watched.add(entityId));
@@ -3354,6 +3360,15 @@ export const devicesMixin = {
     return `--element-fill-screen:conic-gradient(${stops});--element-fill-screen-color:transparent`;
   },
 
+  // The lines one text element draws. A textarea hands back \r\n on Windows and
+  // the same string travels to render.py, whose PIL text renderer splits on \n
+  // alone - so the newlines are normalised in exactly one place, here, and both
+  // renderers see the same list. An empty string is still one (empty) line so a
+  // blank element keeps its box rather than collapsing.
+  _templateTextLines(value) {
+    return String(value ?? "").replace(/\r\n?/g, "\n").split("\n");
+  },
+
   _paintTemplateOverlays(context, overlays, width, height) {
     const paintRichText = (item, x, y, w, h, padding = 0) => {
       const size = Math.max(7, item.fontSize * Math.min(width, height) / 300);
@@ -3369,16 +3384,27 @@ export const devicesMixin = {
       }
       context.font = `${item.fontStyle === "italic" ? "italic " : ""}${item.fontWeight} ${size}px "${family}", Arial, Helvetica, sans-serif`;
       context.textBaseline = "middle"; context.textAlign = item.textAlign || "center";
-      if (Number(item.textOutlineWidth || 0) > 0) {
-        context.strokeStyle = item.textOutlineColor || "#ffffff"; context.lineWidth = Math.max(1, Number(item.textOutlineWidth) * Math.min(width, height) / 300); context.strokeText(item.text, textX, textY, Math.max(1, w - padding * 2));
-      }
-      context.fillStyle = item.color || "#111111"; context.fillText(item.text, textX, textY, Math.max(1, w - padding * 2));
-      if (["underline", "line-through"].includes(item.textDecoration)) {
-        const measured = Math.min(w - padding * 2, context.measureText(item.text).width);
-        const startX = item.textAlign === "left" ? textX : item.textAlign === "right" ? textX - measured : textX - measured / 2;
-        const lineY = item.textDecoration === "underline" ? textY + size * .42 : textY;
-        context.strokeStyle = item.color || "#111111"; context.lineWidth = Math.max(1, size * .07); context.beginPath(); context.moveTo(startX, lineY); context.lineTo(startX + measured, lineY); context.stroke();
-      }
+      // Enter in the content field means a real second line, so the run is
+      // drawn line by line and the block is centred on the box - 1.12 is the
+      // same line-height the preview's CSS uses, which is what keeps the two
+      // pictures on top of each other.
+      const lines = this._templateTextLines(item.text);
+      const lineHeight = size * 1.12;
+      const firstY = textY - (lines.length - 1) * lineHeight / 2;
+      const maxTextWidth = Math.max(1, w - padding * 2);
+      lines.forEach((line, index) => {
+        const lineY = firstY + index * lineHeight;
+        if (Number(item.textOutlineWidth || 0) > 0) {
+          context.strokeStyle = item.textOutlineColor || "#ffffff"; context.lineWidth = Math.max(1, Number(item.textOutlineWidth) * Math.min(width, height) / 300); context.strokeText(line, textX, lineY, maxTextWidth);
+        }
+        context.fillStyle = item.color || "#111111"; context.fillText(line, textX, lineY, maxTextWidth);
+        if (["underline", "line-through"].includes(item.textDecoration)) {
+          const measured = Math.min(maxTextWidth, context.measureText(line).width);
+          const startX = item.textAlign === "left" ? textX : item.textAlign === "right" ? textX - measured : textX - measured / 2;
+          const ruleY = item.textDecoration === "underline" ? lineY + size * .42 : lineY;
+          context.strokeStyle = item.color || "#111111"; context.lineWidth = Math.max(1, size * .07); context.beginPath(); context.moveTo(startX, ruleY); context.lineTo(startX + measured, ruleY); context.stroke();
+        }
+      });
     };
     context.save();
     for (const item of overlays) {
@@ -4121,6 +4147,37 @@ export const devicesMixin = {
     }
   },
 
+  // `width`/`height` are the caller's own, not request.width/height: a display
+  // with a drafted resolution renders at the draft, and every other binding in
+  // _displayTemplateEntityAutomation is already placed against it. Measuring
+  // the footer against the SDK's stock size instead would put it at the wrong
+  // coordinates on exactly those displays.
+  async _templateFooterAutomationBindings(request, width, height) {
+    const bindings = [];
+    const boxes = this._collectTemplateOverlayBoxes({ ...request, width, height });
+    for (const [index, item] of boxes.entries()) {
+      if (item.kind !== "block" || !item.block?.footer?.some((cell) => cell.entityId)) continue;
+      const w = Math.max(1, Math.round(item.w * width));
+      const h = Math.max(1, Math.round(item.h * height));
+      const row = this._templateBlockElementRow(item, h);
+      await this._preloadTemplateIcons([row]);
+      const slots = [];
+      const markup = this._layoutTemplateFooter(row, w, h, h, null, slots).join("");
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${markup}</svg>`;
+      const clean = new DOMParser().parseFromString(svg, "image/svg+xml");
+      for (const slot of slots) clean.getElementById(slot.id)?.remove();
+      bindings.push({
+        id: `designer-footer-${index}`, type: "footer",
+        x: Math.round(item.x * width), y: Math.round(item.y * height), w, h,
+        rotation: item.rotation || 0, cells: structuredClone(item.block.footer), slots,
+        svg_template: svg,
+        background_image: await this._rasterizeSvgStringToPng(clean.documentElement.outerHTML, w, h),
+        fallback: JSON.stringify(row.footer.map((cell) => String(cell.value ?? ""))),
+      });
+    }
+    return bindings;
+  },
+
   async _displayTemplateEntityAutomation(image, device, gatewayId = "") {
     const request = this._currentDisplayTemplateSvgRequest(device);
     const routing = this._displayAutomationRouting(device, gatewayId);
@@ -4298,6 +4355,7 @@ export const devicesMixin = {
       }
     });
 
+    bindings.push(...await this._templateFooterAutomationBindings(request, width, height));
     if (!bindings.length) return undefined;
     return {
       enabled: true,
@@ -4657,9 +4715,12 @@ export const devicesMixin = {
       else if (item.type === "circle") preview = `<i class="template-palette-shape-sample is-circle"></i>`;
       else if (item.type === "line") preview = `<i class="template-palette-line-sample"></i>`;
       // The tile is the component itself, at the proportions it will land in.
-      else if (this._isTemplateComponentKind(item.type)) preview = this._renderTemplateComponentSvg(item, 296, 128);
+      else if (this._isTemplateComponentKind(item.type)) {
+        const canvas = this._templateBlockPaletteCanvas();
+        preview = this._renderTemplateComponentSvg(item, canvas.width, canvas.height);
+      }
       const componentClass = this._isTemplateComponentKind(item.type) ? ` template-overlay-${item.type}` : "";
-      return `<span class="template-palette-visual template-palette-preview${componentClass} variant-${this._escape(item.variant || item.type)}" style="${style}">${preview}</span>`;
+      return `<span class="template-palette-visual template-palette-preview${componentClass} variant-${this._escape(item.variant || item.type)}" data-template-palette-bitmap="${this._escape(JSON.stringify({ type, ...settings }))}" style="${style}">${preview}</span>`;
     };
     const tool = (type, icon, label, preset = {}) => {
       const settings = typeof preset === "string" ? { icon: preset } : { ...preset };
@@ -4760,7 +4821,14 @@ export const devicesMixin = {
       ${this._isTemplateComponentKind(item.type) ? propertyTab("Barvy jednotlivých částí", `${this._templateComponentParts(item.type).map(([prop, title, inherits]) => `<label class="template-property-wide"><span>${this._escape(title)}</span>${colors(prop, item[prop] || "", true, inherits ? "Podle hlavní barvy" : "")}</label>`).join("")}<p class="template-entity-help">${this._displaySupportsYellow() ? "Displej tiskne jen černou, bílou, červenou a žlutou - jiné odstíny na něm neexistují." : "Displej tiskne jen černou, bílou a červenou - jiné odstíny na něm neexistují."}</p>`, true) : ""}
       ${["qr", "barcode"].includes(item.type) ? propertyTab(item.type === "qr" ? "Obsah QR kódu" : "Data EAN-13", `<label class="template-property-wide"><span>${item.type === "qr" ? "Text, URL nebo Wi-Fi konfigurace" : "12 nebo 13 číslic"}</span><input type="text" value="${this._escape(item.text || "")}" data-template-element-prop="text"></label><p class="template-entity-help">Kód se po změně automaticky znovu vygeneruje.</p>`, true) : ""}
       ${textTypes.includes(item.type) ? `${propertyTab("Text a typografie", `
-        <label class="template-property-wide"><span>Obsah</span><input type="text" value="${this._escape(item.text || "")}" data-template-element-prop="text"></label>
+        <label class="template-property-wide"><span>Obsah</span>${item.type === "text"
+          // A textarea, so Enter makes a second line instead of doing nothing.
+          // Only the free text element gets one: a button caption is a single
+          // centred run, and a signal label is composed into "Stav  ON" before
+          // it is drawn, so a newline in either would be dropped further down.
+          ? `<textarea rows="2" data-template-element-prop="text" data-template-element-multiline>${this._escape(item.text || "")}</textarea>`
+          : `<input type="text" value="${this._escape(item.text || "")}" data-template-element-prop="text">`}</label>
+        ${item.type === "text" ? `<p class="template-entity-help">Enter vloží nový řádek. Text se na displeji vysází na tolik řádků, kolik jich napíšete.</p>` : ""}
         <div class="template-property-row">${field("Velikost", "fontSize", item.fontSize, 6, 72, 1, "px")}${select("Řez", "fontWeight", String(item.fontWeight), [["400", "Normální"], ["700", "Tučný"], ["900", "Extra tučný"]])}</div>
         <label class="template-property-wide"><span>Zarovnání</span><div class="template-align-buttons">${[["left", "format-align-left"], ["center", "format-align-center"], ["right", "format-align-right"]].map(([value, icon]) => `<button type="button" class="${item.textAlign === value ? "is-selected" : ""}" data-template-element-align="${value}"><ha-icon icon="mdi:${icon}"></ha-icon></button>`).join("")}</div></label>
         <label class="template-property-wide"><span>Barva textu</span>${colors("color", item.color)}</label>
@@ -4955,8 +5023,15 @@ export const devicesMixin = {
       const normalized = String(value ?? "").trim().toLowerCase();
       return ["#111111", "#d71912", "#f4c400", "#ffffff", "transparent"].includes(normalized) ? normalized : "";
     };
+    // A textarea hands back \r\n on Windows, and the same string is what
+    // render.py splits on \n alone. Normalising once, here, is what keeps a
+    // two-line element two lines on the panel and on the display alike. Left
+    // untouched when the kind has no text at all, so a rect does not gain the
+    // key it never had.
+    const storedText = source.text ?? defaults.text;
     return {
       ...defaults, ...source, type, w, h,
+      ...(storedText === undefined ? {} : { text: this._templateTextLines(storedText).join("\n") }),
       gridColor: partColor(source.gridColor), labelColor: partColor(source.labelColor),
       valueColor: partColor(source.valueColor), pointColor: partColor(source.pointColor),
       trackColor: partColor(source.trackColor),
@@ -5794,8 +5869,64 @@ export const devicesMixin = {
     }).join("")}</div>`;
   },
 
+  async _templatePaletteBitmap(source) {
+    const item = this._normalizeTemplateEditorElement(source);
+    const { width, height } = this._templateBlockPaletteCanvas();
+    if (["icon", "circle", "qr"].includes(item.type)
+      || (item.type === "chart" && item.variant === "donut")
+      || (item.type === "gauge" && ["ring", "semicircle"].includes(item.variant))
+      || (item.type === "block" && this._templateBlockSpec(item.blockKind)?.square)) {
+      this._fitTemplateElementVisualAspect(item, 1);
+    }
+    item.x = 0; item.y = 0; item.rotation = 0;
+    const overlay = this._templateOverlayBox(item, {}, { x: 0, y: 0, w: width, h: height }, width, height);
+    await document.fonts?.ready;
+    await this._prepareTemplateOverlayImages([overlay], width, height);
+    // Paint at the actual display resolution, then crop without rescaling.
+    // Text, shapes, QR codes and blocks all use the send path's painter.
+    const canvas = document.createElement("canvas");
+    canvas.width = width; canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#fff"; context.fillRect(0, 0, width, height);
+    this._paintTemplateOverlays(context, [overlay], width, height);
+    const w = Math.max(1, Math.round(overlay.w * width));
+    const h = Math.max(1, Math.round(overlay.h * height));
+    const pixels = context.getImageData(0, 0, w, h);
+    for (let i = 0; i < pixels.data.length; i += 4) {
+      const ink = this._quantizeEinkPixel(...pixels.data.slice(i, i + 3));
+      pixels.data[i] = ink[0]; pixels.data[i + 1] = ink[1]; pixels.data[i + 2] = ink[2];
+      pixels.data[i + 3] = 255;
+    }
+    const cropped = document.createElement("canvas");
+    cropped.width = w; cropped.height = h;
+    cropped.getContext("2d").putImageData(pixels, 0, 0);
+    return cropped.toDataURL("image/png");
+  },
+
+  _paintTemplatePalettePreviews() {
+    this._templatePaletteBitmapCache ||= new Map();
+    const canvas = this._templateBlockPaletteCanvas();
+    this.shadowRoot.querySelectorAll("[data-template-palette-bitmap]").forEach((node) => {
+      const raw = node.dataset.templatePaletteBitmap;
+      const key = `${canvas.width}x${canvas.height}:${this._displayPaletteKey()}:${raw}`;
+      let pending = this._templatePaletteBitmapCache.get(key);
+      if (!pending) {
+        pending = this._templatePaletteBitmap(JSON.parse(raw));
+        this._templatePaletteBitmapCache.set(key, pending);
+        if (this._templatePaletteBitmapCache.size > 200) this._templatePaletteBitmapCache.delete(this._templatePaletteBitmapCache.keys().next().value);
+      }
+      pending.then((src) => {
+        if (!node.isConnected) return;
+        const image = document.createElement("img");
+        image.src = src; image.alt = "";
+        node.replaceChildren(image);
+      }).catch(() => this._templatePaletteBitmapCache.delete(key));
+    });
+  },
+
   _bindTemplateEditorOverlays() {
     if (this._activeTab !== "display-settings" || this._displaySettingsView !== "designer") return;
+    this._paintTemplatePalettePreviews();
     const surfaces = [...this.shadowRoot.querySelectorAll(".display-template-editor-stage .display-template-surface")];
     const pointInSurface = (event, surface) => {
       const box = surface.getBoundingClientRect();
@@ -5953,8 +6084,18 @@ export const devicesMixin = {
     const legacy = draft.options?.[option];
     if (typeof legacy === "boolean") return legacy;
     const entity = this._templateEntityForKind(template, [option]);
-    const state = entity ? this._hass?.states?.[entity] : null;
+    if (!entity) return this._templateOptionDefault(template, option);
+    const state = this._hass?.states?.[entity];
     return ["on", "true", "1", "akce", "sale"].includes(String(state?.state ?? "").toLowerCase());
+  },
+
+  // A switch that starts on. "Akce" on a price tag is off until someone runs a
+  // promotion, but a sign's picture is the thing the template *is* - a board
+  // that arrives blank until its one switch is found reads as broken, so an
+  // option may declare its own starting state as a fourth element.
+  _templateOptionDefault(template, option) {
+    const spec = (template?.options || []).find(([name]) => name === option);
+    return spec?.[3] === true;
   },
 
   _templateOptionActive(template, option) {
@@ -5965,7 +6106,8 @@ export const devicesMixin = {
     const options = template?.options || [];
     if (!options.length) return "";
     return `<div class="template-option-settings">${options.map(([option, label, help]) => {
-      const active = !!this._displayTemplateOptions?.[`${template.id}:${option}`];
+      const stored = this._displayTemplateOptions?.[`${template.id}:${option}`];
+      const active = stored === undefined ? this._templateOptionDefault(template, option) : !!stored;
       const bound = this._templateEntityForKind(template, [option]);
       return `<label class="template-option-switch ${active ? "is-active" : ""}">
         <input type="checkbox" data-template-option="${this._escape(`${template.id}:${option}`)}" ${active ? "checked" : ""}>

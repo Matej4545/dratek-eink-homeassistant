@@ -141,6 +141,12 @@ ALL_ATTRIBUTES_SOURCE = "__dratek_all_attributes__"
 def _binding_sources(binding: dict[str, Any]) -> set[tuple[str, str]]:
     """Return every entity and attribute that can change a rendered binding."""
     sources: set[tuple[str, str]] = set()
+    if binding.get("type") == "footer":
+        return {
+            (str(cell["entityId"]), str(cell.get("entityAttribute") or ""))
+            for cell in binding.get("cells", [])
+            if isinstance(cell, dict) and cell.get("entityId")
+        }
     entity_id = str(binding.get("entity_id") or "")
     if entity_id:
         sources.add((entity_id, str(binding.get("entity_attribute") or "")))
@@ -1589,6 +1595,16 @@ class EntityAutoUpdateManager:
 
     def _resolve_binding_value(self, address: str, binding: dict[str, Any]) -> str:
         binding_type = binding.get("type")
+        if binding_type == "footer":
+            values = []
+            for cell in binding.get("cells", []):
+                entity_id = str(cell.get("entityId") or "")
+                values.append(self._state_value(self.hass.states.get(entity_id), {
+                    "type": "text", "entity_id": entity_id,
+                    "entity_attribute": str(cell.get("entityAttribute") or ""),
+                    "include_unit": True, "fallback": str(cell.get("value") or ""),
+                }) if entity_id else str(cell.get("value") or ""))
+            return json.dumps(values, ensure_ascii=False)
         # A ratio() binding has no single entity_id of its own - a dial or
         # ring reads one meter, a bar list several - so it resolves each
         # meter's own state itself instead of the single lookup below.
