@@ -2,6 +2,17 @@
 
 Všechny významné změny a historie verzí v projektu DRATEK eInk.
 
+## [1.0.9-beta.1] - 2026-09-18
+
+Předběžné vydání vycházející ze stabilní verze 1.0.8, včetně opravy potvrzovaných Bluetooth přenosů pro SDK 46.
+
+### Přidáno
+
+- V katalogu je dostupná firemní šablona DRÁTEK s tlačítkem pro odeslání na všechny známé displeje.
+- Hromadné odeslání po potvrzení nahradí jejich automatické aktualizace a čekající úlohy šablonou DRÁTEK.
+
+Firmware gateway zůstává 0.1.76. Stabilní vydání 1.0.8 zůstává dostupné; tuto betu nabízí HACS při zapnutých předběžných verzích.
+
 ## [1.0.8] - 2026-09-18
 
 ### Opraveno
