@@ -270,7 +270,7 @@ class FrontendToolLibraryTests(unittest.TestCase):
         self.assertIn('this._projectName = "Vlastní šablona";', self.source)
         self.assertIn('if (template.id === "blank") return "";', self.source)
         self.assertIn('if (!resolvedBase || resolvedBase === template || resolvedBase.id === "blank") return "";', self.source)
-        self.assertIn('if (baseTemplate?.id === "blank" || (baseTemplate?.user_created && !baseTemplate?.base_template_id)) return [];', self.source)
+        self.assertIn('if (baseTemplate?.id === "blank" || baseTemplate?.user_created) return [];', self.source)
         self.assertNotIn('Prázdná plocha od nuly</text>', self.source)
 
     def test_each_template_has_an_isolated_editor_state(self):
@@ -612,7 +612,7 @@ class FrontendToolLibraryTests(unittest.TestCase):
         self.assertIn('.display-template-library .display-template-card.is-user-created{', self.source)
         self.assertIn('if (template.id === "blank") return "";', self.source)
         self.assertIn('if (!resolvedBase || resolvedBase === template || resolvedBase.id === "blank") return "";', self.source)
-        self.assertIn('base_template_id: existing?.base_template_id || (selectedId === "blank" ? "" : selectedId)', self.source)
+        self.assertIn('existing.base_template_id === existing.id ? "" : existing.base_template_id || ""', self.source)
         self.assertIn('_applyTemplateAdjustmentsToSvgMarkup(markup, template', self.source)
 
     def test_saved_blank_preview_cannot_inherit_the_display_template(self):

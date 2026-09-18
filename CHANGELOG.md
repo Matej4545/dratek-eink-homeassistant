@@ -2,6 +2,16 @@
 
 Všechny významné změny a historie verzí v projektu DRATEK eInk.
 
+## [1.0.9-beta.2] - 2026-09-18
+
+### Opraveno
+
+- Opakované uložení vlastní šablony vytvořené od nuly zachovává prázdný základ. Dříve vznikal odkaz šablony na sebe samotnou a vykreslování přidávalo náhradní černou ikonu a název „Vlastní šablona“ do obrazu.
+- Vykreslování bezpečně zpracuje i starší šablony s cyklickým nebo chybějícím základem; náhled takové šablony se sestaví z editovatelných prvků místo starého zachyceného obrázku.
+- Šablony odvozené od existujícího návrhu nadále zachovávají svůj skutečný základ. Firemní šablona DRÁTEK pro hromadné odeslání zůstává dostupná.
+
+Ověřeno regresním testem opakovaného ukládání, starých odkazů a odvozených šablon a 172 kontrolami editoru a šablon. Konkrétní uložený návrh uživatele nebyl k dispozici pro vizuální ověření.
+
 ## [1.0.9-beta.1] - 2026-09-18
 
 Předběžné vydání vycházející ze stabilní verze 1.0.8, včetně opravy potvrzovaných Bluetooth přenosů pro SDK 46.

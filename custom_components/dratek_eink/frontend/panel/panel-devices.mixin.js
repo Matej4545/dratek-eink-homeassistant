@@ -1466,6 +1466,12 @@ export const devicesMixin = {
 
   _hasTrustedUserTemplatePreview(template) {
     if (!String(template?.preview_image || "").startsWith("data:image/")) return false;
+    // A legacy self-reference (or missing base) may have baked the fallback
+    // icon and catalog title into the snapshot. Rebuild from editable data.
+    if (template?.base_template_id) {
+      const base = this._templateBaseDefinition(template);
+      if (!base || base.user_created || base.id === "blank") return false;
+    }
     // Older derived templates already identify the prepared template beneath
     // them. A from-scratch template did not carry any preview provenance, and
     // the old save path could therefore capture whatever unrelated template
@@ -2287,7 +2293,11 @@ export const devicesMixin = {
       id,
       title,
       user_created: true,
-      base_template_id: existing?.base_template_id || (selectedId === "blank" ? "" : selectedId),
+      // An empty base is intentional. Re-saving a blank-based template must
+      // not turn it into its own base; also repair the old self-reference.
+      base_template_id: existing
+        ? (existing.base_template_id === existing.id ? "" : existing.base_template_id || "")
+        : (selectedId === "blank" ? "" : selectedId),
       variables: structuredClone(existing?.variables || sourceTemplate.variables || []),
       options: structuredClone(existing?.options || sourceTemplate.options || []),
       editor_elements: structuredClone(this._templateEditorElements || []),

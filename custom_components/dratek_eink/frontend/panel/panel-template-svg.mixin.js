@@ -795,7 +795,17 @@ export const templateSvgMixin = {
   // so return whatever is cached now and re-render once the rest arrive.
   _templateBaseDefinition(template) {
     if (!template?.base_template_id) return template;
-    return this._displayTemplateCards?.().find((item) => item.id === template.base_template_id) || template;
+    const cards = this._displayTemplateCards?.() || [];
+    const seen = new Set([template.id]);
+    let base = template;
+    while (base?.base_template_id) {
+      const id = base.base_template_id;
+      if (seen.has(id)) return template;
+      seen.add(id);
+      base = cards.find((item) => item.id === id);
+      if (!base) return template;
+    }
+    return base;
   },
 
   _templateAdjustmentsForRender(template) {
@@ -3189,7 +3199,9 @@ if (dial.min != null) parts.push(this._svgText(dial.min, cx - outer, scaleY, sca
 
   _templateSvgRows(template, width, height) {
     const baseTemplate = this._templateBaseDefinition(template);
-    if (baseTemplate?.id === "blank" || (baseTemplate?.user_created && !baseTemplate?.base_template_id)) return [];
+    // User templates supply their own editor elements. If their base cannot
+    // resolve to a built-in template, never print catalog metadata as artwork.
+    if (baseTemplate?.id === "blank" || baseTemplate?.user_created) return [];
     const build = this._templateSvgSpecs(baseTemplate, undefined, width, height)[baseTemplate?.id];
     let rows = build ? build() : [
       { icon: "shape-outline", h: 0.22 },
