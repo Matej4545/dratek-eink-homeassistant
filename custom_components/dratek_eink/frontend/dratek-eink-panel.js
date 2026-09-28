@@ -18,6 +18,7 @@ import { drawChartsMixin } from "./panel/panel-draw-charts.mixin.js?v=readable-c
 import { templateSvgMixin } from "./panel/panel-template-svg.mixin.js?v=radar-cache-per-display-1";
 import { templateBlocksMixin } from "./panel/panel-template-blocks.mixin.js?v=template-blocks-2";
 import { templateComponentsMixin } from "./panel/panel-template-components.mixin.js?v=component-parts-2";
+import { templateScriptMixin } from "./panel/panel-template-script.mixin.js?v=script-template-1";
 
 import { DRATEK_EINK_VERSION, CURRENT_GATEWAY_FIRMWARES } from "./panel/panel-constants.js?v=1.0.1";
 
@@ -99,6 +100,18 @@ class DratekEinkPanel extends HTMLElement {
     this._pendingDisplayTemplateConflict = null;
     this._templateSending = false;
     this._templateSendResult = null;
+    this._scriptTemplateEditorOpen = false;
+    this._scriptTemplateEditorTemplateId = "";
+    this._scriptTemplateEditorTitle = "";
+    this._scriptTemplateEditorSource = "";
+    this._scriptTemplateEditorDataSources = "[]";
+    this._scriptTemplateEditorRevision = 1;
+    this._scriptTemplateEditorValidation = { valid: false, error: "", updated_at: 0 };
+    this._scriptTemplateEditorLastGoodSource = "";
+    this._scriptTemplateEditorLastGoodRevision = 0;
+    this._scriptTemplateEditorResult = null;
+    this._scriptTemplateRowsCache = new Map();
+    this._scriptTemplateRowsPending = new Set();
     this._templateDesignerReturnView = "overview";
     this._editingDeviceAddress = "";
     this._deviceNameDraft = "";
@@ -460,6 +473,7 @@ Object.assign(
   templateSvgMixin,
   templateBlocksMixin,
   templateComponentsMixin,
+  templateScriptMixin,
   brandLogoMixin
 );
 

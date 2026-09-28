@@ -10,6 +10,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from .automation import get_entity_auto_update_manager
+from .project_storage import normalize_user_templates
 from .display_preview import async_display_preview, async_load_display_previews
 from .ws_shared import (
     _load_project_data,
@@ -58,6 +59,13 @@ async def websocket_save_user_template(
             "updated_at": template.get("updated_at") or int(time.time()),
         }
     )
+    normalized_templates = normalize_user_templates([template])
+    if not normalized_templates:
+        connection.send_error(
+            msg["id"], "invalid_template", "User template payload is invalid."
+        )
+        return
+    template = normalized_templates[0]
     data = await _load_project_data(hass)
     data["user_templates"] = [
         item for item in data["user_templates"] if item.get("id") != template_id

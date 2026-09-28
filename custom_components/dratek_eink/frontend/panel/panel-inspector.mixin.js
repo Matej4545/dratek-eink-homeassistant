@@ -272,6 +272,10 @@ export const inspectorMixin = {
       this._templateSettingsDialogOpen = false;
       this._render(); this._paint();
     }));
+    this.shadowRoot.querySelectorAll("[data-script-template-close]").forEach((control) => control.addEventListener("click", (event) => {
+      if (control.classList.contains("template-settings-backdrop") && event.target !== control) return;
+      this._closeScriptTemplateEditor?.();
+    }));
     this.shadowRoot.querySelectorAll("[data-tab]").forEach((button) => button.addEventListener("click", async () => {
       const nextTab = button.dataset.tab;
       if (nextTab === "devices") {
@@ -389,6 +393,11 @@ export const inspectorMixin = {
           this._openCustomImageStudioView?.("images");
           return;
         }
+        const template = this._displayTemplateCards?.().find((item) => item.id === templateId);
+        if (this._isScriptUserTemplate?.(template)) {
+          this._openScriptTemplateEditor?.(templateId);
+          return;
+        }
         this._templateEditMenuId = "";
         this._templateSettingsDialogOpen = true;
         this._templateSettingsDialogMode = "variables";
@@ -426,6 +435,31 @@ export const inspectorMixin = {
     this.shadowRoot.querySelector("[data-display-template-search]")?.addEventListener("input", (event) => {
       this._displayTemplateSearchQuery = event.target.value;
       this._renderKeepingSearchFocus();
+    });
+    this.shadowRoot.querySelector("[data-script-template-create]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this._openScriptTemplateEditor?.("");
+    });
+    this.shadowRoot.querySelector("[data-script-template-title]")?.addEventListener("input", (event) => {
+      this._scriptTemplateEditorTitle = event.target.value;
+    });
+    this.shadowRoot.querySelector("[data-script-template-source]")?.addEventListener("input", (event) => {
+      this._scriptTemplateEditorSource = event.target.value;
+    });
+    this.shadowRoot.querySelector("[data-script-template-sources]")?.addEventListener("input", (event) => {
+      this._scriptTemplateEditorDataSources = event.target.value;
+    });
+    this.shadowRoot.querySelector("[data-script-template-validate]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this._validateScriptTemplateEditor?.();
+    });
+    this.shadowRoot.querySelector("[data-script-template-save]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this._saveScriptTemplateEditor?.();
+    });
+    this.shadowRoot.querySelector("[data-script-template-rollback]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this._rollbackScriptTemplateEditorToLastGood?.();
     });
     this.shadowRoot.querySelector("[data-display-refresh-settings]")?.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -605,6 +639,10 @@ export const inspectorMixin = {
     const openTemplateDesigner = (templateId) => {
       const template = this._displayTemplateCards().find((item) => item.id === templateId);
       if (!template) return;
+      if (this._isScriptUserTemplate?.(template)) {
+        this._openScriptTemplateEditor?.(templateId);
+        return;
+      }
       if (templateId === "custom_image" && !this._customImageDataUrl) {
         this._useBundledCustomImageTemplate()
           .then(() => { this._render(); this._paint(); })
@@ -679,6 +717,10 @@ export const inspectorMixin = {
           this._displaySettingsView = "templates";
           this._render();
           this._paint();
+          return;
+        }
+        if (choice === "script") {
+          this._openScriptTemplateEditor?.(templateId);
           return;
         }
         this._templateSettingsDialogOpen = false;
