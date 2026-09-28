@@ -1,6 +1,6 @@
 const SCRIPT_SOURCE_LIMIT = 64 * 1024;
 const SCRIPT_OUTPUT_LIMIT = 256 * 1024;
-const SCRIPT_EXECUTION_TIMEOUT_MS = 500;
+const SCRIPT_EXECUTION_TIMEOUT_MS = 2000;
 const SCRIPT_MAX_ROWS = 80;
 const SCRIPT_MAX_ROW_KEYS = 80;
 
@@ -347,31 +347,61 @@ export const templateScriptMixin = {
     const script = clampText(source, SCRIPT_SOURCE_LIMIT);
     if (!script.trim()) throw new Error("Script source is empty.");
     const workerBody = `
-      "use strict";
-      const blocked = Object.freeze({
-        fetch: undefined,
-        XMLHttpRequest: undefined,
-        WebSocket: undefined,
-        importScripts: undefined,
-        window: undefined,
-        document: undefined,
-        globalThis: undefined,
-        self: undefined,
-        Function: undefined,
-        eval: undefined
-      });
+      const __global = self;
+      const __postMessage = postMessage.bind(__global);
+      const __Function = Function;
+      const __lock = (name, value = undefined) => {
+        try {
+          Object.defineProperty(__global, name, {
+            value,
+            writable: false,
+            configurable: false,
+          });
+        } catch (_error) {}
+      };
+      [
+        "fetch",
+        "XMLHttpRequest",
+        "WebSocket",
+        "EventSource",
+        "importScripts",
+        "indexedDB",
+        "caches",
+        "BroadcastChannel",
+        "Worker",
+        "SharedWorker",
+        "window",
+        "document",
+        "globalThis",
+        "self",
+        "Function",
+        "eval",
+      ].forEach((name) => __lock(name));
+      try {
+        if (__global?.navigator && typeof __global.navigator === "object" && "sendBeacon" in __global.navigator) {
+          Object.defineProperty(__global.navigator, "sendBeacon", {
+            value: undefined,
+            writable: false,
+            configurable: false,
+          });
+        }
+      } catch (_error) {}
       onmessage = (event) => {
         try {
           const source = String(event.data?.source || "");
           const context = event.data?.context || {};
-          const runner = new Function("context", "blocked", \`"use strict";
-            const { fetch, XMLHttpRequest, WebSocket, importScripts, window, document, globalThis, self, Function, eval } = blocked;
-            \${source}
-          \`);
-          const result = runner(context, blocked);
-          postMessage({ ok: true, result });
+          const data = context?.data || {};
+          const width = Number(context?.width) || 296;
+          const height = Number(context?.height) || 128;
+          const runner = __Function("context", "data", "width", "height", source);
+          const result = runner(context, data, width, height);
+          __postMessage({ ok: true, result });
         } catch (error) {
-          postMessage({ ok: false, error: String(error?.message || error) });
+          const message = String(error?.message || error);
+          const syntax = error?.name === "SyntaxError"
+            ? \`Syntax error in script: \${message}\`
+            : message;
+          __postMessage({ ok: false, error: syntax });
         }
       };
     `;
@@ -481,7 +511,7 @@ export const templateScriptMixin = {
             <textarea rows="7" data-script-template-sources spellcheck="false">${this._escape(this._scriptTemplateEditorDataSources || "[]")}</textarea>
           </div>
           <div class="field">
-            <label>Script (body) <small style="opacity:.7">Dostupné: context.width, context.height, context.data, context.now_iso, context.now_unix</small></label>
+            <label>Script (body) <small style="opacity:.7">Dostupné: context, data, width, height, context.now_iso, context.now_unix</small></label>
             <textarea rows="14" data-script-template-source spellcheck="false">${this._escape(this._scriptTemplateEditorSource || "")}</textarea>
           </div>
           <div class="template-guide-section" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
