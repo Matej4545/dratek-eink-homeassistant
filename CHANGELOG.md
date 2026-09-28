@@ -2,6 +2,13 @@
 
 Všechny významné změny a historie verzí v projektu DRATEK eInk.
 
+## [1.0.3-matej.1] - 2026-09-28
+
+### Změněno
+
+- Branding integrace v Home Assistantu a HACS je přejmenovaný na **DRATEK eInk (Matej Custom)**, aby byl jasně odlišený od originálu.
+- Verze integrace je označená jako **1.0.3-matej.1** pro snadné rozlišení vlastního vydání.
+
 ## [1.0.3] - 2026-09-18
 
 Sjednocené číslování. Vydání obsahuje všechny opravy z dřívějších pracovních verzí 1.0.8 a 1.0.9-beta.*, které byly staženy.
