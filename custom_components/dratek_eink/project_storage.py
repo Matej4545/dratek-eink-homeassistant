@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+SCRIPT_TEMPLATE_MAX_SOURCE = 64 * 1024
+SCRIPT_TEMPLATE_MAX_SOURCES = 24
+SCRIPT_TEMPLATE_MAX_TITLE = 120
+
 
 def _record_list(value: Any) -> list[dict[str, Any]]:
     """Return records from both current lists and legacy numeric-key mappings."""
@@ -26,6 +30,13 @@ def _normalize_record_objects(record: dict[str, Any]) -> dict[str, Any]:
             item for item in objects if isinstance(item, dict)
         ]
     return normalized
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def normalize_device_drafts(value: Any) -> dict[str, dict[str, Any]]:
@@ -101,9 +112,70 @@ def normalize_user_templates(value: Any) -> list[dict[str, Any]]:
         seen.add(template_id)
         template = dict(source)
         template["id"] = template_id
-        template["title"] = str(template.get("title") or "Vlastní šablona")
+        template["title"] = str(template.get("title") or "Vlastní šablona")[:SCRIPT_TEMPLATE_MAX_TITLE]
         template["user_created"] = True
-        template["editor_elements"] = _record_list(template.get("editor_elements"))
+        template_type = str(template.get("template_type") or "designer").strip().lower()
+        if template_type not in {"designer", "script"}:
+            template_type = "designer"
+        template["template_type"] = template_type
+        if template_type == "script":
+            script_source = str(template.get("script_source") or "")
+            template["script_source"] = script_source[:SCRIPT_TEMPLATE_MAX_SOURCE]
+            sources: list[dict[str, Any]] = []
+            for source_item in _record_list(template.get("data_sources"))[:SCRIPT_TEMPLATE_MAX_SOURCES]:
+                source_id = str(source_item.get("id") or "").strip()[:80]
+                source_type = str(source_item.get("type") or "entity").strip().lower()
+                if source_type not in {"entity", "forecast", "calendar", "transit", "todo_list", "http"}:
+                    source_type = "entity"
+                if not source_id:
+                    continue
+                normalized_source = {
+                    "id": source_id,
+                    "type": source_type,
+                    "entity_id": str(source_item.get("entity_id") or "").strip()[:255],
+                    "entity_attribute": str(source_item.get("entity_attribute") or "").strip()[:120],
+                    "path": str(source_item.get("path") or "").strip()[:255],
+                    "url": str(source_item.get("url") or "").strip()[:1024],
+                    "method": (
+                        "POST"
+                        if str(source_item.get("method") or "GET").strip().upper() == "POST"
+                        else "GET"
+                    ),
+                    "headers": {
+                        str(key)[:80]: str(value)[:512]
+                        for key, value in (source_item.get("headers") or {}).items()
+                        if str(key).strip()
+                    } if isinstance(source_item.get("headers"), dict) else {},
+                    "body": str(source_item.get("body") or "")[:4096],
+                    "timeout_seconds": max(
+                        1,
+                        min(30, _safe_int(source_item.get("timeout_seconds"), 10)),
+                    ),
+                }
+                sources.append(normalized_source)
+            template["data_sources"] = sources
+            template["script_revision"] = max(1, _safe_int(template.get("script_revision"), 1))
+            template["script_validation"] = {
+                "valid": bool((template.get("script_validation") or {}).get("valid")),
+                "error": str((template.get("script_validation") or {}).get("error") or "")[:2000],
+                "updated_at": _safe_int((template.get("script_validation") or {}).get("updated_at"), 0),
+            }
+            template["script_last_good_source"] = str(template.get("script_last_good_source") or "")[
+                :SCRIPT_TEMPLATE_MAX_SOURCE
+            ]
+            template["script_last_good_revision"] = max(
+                0, _safe_int(template.get("script_last_good_revision"), 0)
+            )
+            template["editor_elements"] = []
+            template["element_adjustments"] = {}
+        else:
+            template["editor_elements"] = _record_list(template.get("editor_elements"))
+            template.pop("script_source", None)
+            template.pop("data_sources", None)
+            template.pop("script_revision", None)
+            template.pop("script_validation", None)
+            template.pop("script_last_good_source", None)
+            template.pop("script_last_good_revision", None)
         adjustments = template.get("element_adjustments")
         template["element_adjustments"] = adjustments if isinstance(adjustments, dict) else {}
         templates.append(template)

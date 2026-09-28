@@ -858,6 +858,10 @@ export const templateSvgMixin = {
 
   _templateSvgPreviewMarkup(template, width, height) {
     if (!template) return "";
+    if (this._isScriptUserTemplate?.(template)) {
+      const rows = this._templateSvgRows(template, width, height);
+      return this._layoutTemplateSvg(rows, width, height);
+    }
     // The catalog may decorate the "create" tile, but the actual designer and
     // exported image must start as a completely white canvas.
     if (template.id === "blank") return "";
@@ -3328,6 +3332,9 @@ if (dial.min != null) parts.push(this._svgText(dial.min, cx - outer, scaleY, sca
 
   _templateSvgRows(template, width, height) {
     const baseTemplate = this._templateBaseDefinition(template);
+    if (this._isScriptUserTemplate?.(baseTemplate)) {
+      return this._scriptTemplateRows?.(baseTemplate, width, height) || [];
+    }
     // User templates supply their own editor elements. If their base cannot
     // resolve to a built-in template, never print catalog metadata as artwork.
     if (baseTemplate?.id === "blank" || baseTemplate?.user_created) return [];

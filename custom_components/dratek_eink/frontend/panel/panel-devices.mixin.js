@@ -1245,7 +1245,15 @@ export const devicesMixin = {
         broadcast: template.action === "dratek_logo_broadcast",
         id: String(template.id),
         title: String(template.title || "Vlastní šablona"),
-        variables: Array.isArray(template.variables) ? template.variables : [],
+        variables: Array.isArray(template.variables) && template.variables.length
+          ? template.variables
+          : String(template.template_type || "").toLowerCase() === "script"
+            ? (Array.isArray(template.data_sources) ? template.data_sources : []).map((source) => [
+              String(source?.type || "database").includes("entity") ? "database-outline" : "source-branch",
+              String(source?.id || "source"),
+            ])
+            : [],
+        template_type: String(template.template_type || "designer").toLowerCase() === "script" ? "script" : "designer",
         user_created: true,
         kind: "custom",
       }));
@@ -1289,6 +1297,19 @@ export const devicesMixin = {
   // configure, so it is reported as "complete" rather than "empty": there is no
   // unset state for a card that never asks for one.
   _templateBindingStatus(template) {
+    if (this._isScriptUserTemplate?.(template)) {
+      const sources = Array.isArray(template?.data_sources) ? template.data_sources : [];
+      const total = sources.length;
+      const done = sources.filter((source) => {
+        if (String(source?.type || "entity") !== "entity") return true;
+        return !!String(source?.entity_id || "").trim();
+      }).length;
+      const valid = template?.script_validation?.valid === true;
+      if (!total) return { total: 0, done: 0, state: valid ? "complete" : "partial" };
+      if (done >= total && valid) return { total, done, state: "complete" };
+      if (done > 0 || valid) return { total, done, state: "partial" };
+      return { total, done, state: "empty" };
+    }
     if (template?.id === "transport") {
       // The second stop is optional, so it is never counted as missing - a
       // board watching one stop is a finished configuration, not a half one.
@@ -1472,6 +1493,7 @@ export const devicesMixin = {
     const short = Math.min(base.width, base.height);
     const width = orientation === "landscape" ? long : short;
     const height = orientation === "landscape" ? short : long;
+    if (this._isScriptUserTemplate?.(template)) return this._templateSvgThumbnail(template, width, height);
     if (template?.user_created) return this._renderUserDisplayTemplateCatalogPreview(template, orientation, width, height);
     return this._templateSvgThumbnail(template, width, height);
   },
@@ -1570,6 +1592,7 @@ export const devicesMixin = {
       : "single";
     const previewZoom = Math.max(0.5, Math.min(16, Number(this._displayTemplatePreviewZoom || 1)));
     const imageNavigation = assignedTemplates.includes("custom_image");
+    const canSend = assignedTemplates.length && this._assignedTemplatesAreValidForSend?.(device);
     return `<section class="display-templates-inline">
       <div class="display-template-workspace">
         <aside class="card display-template-drop-panel ${largeDisplay ? "is-large-display" : "is-small-display"}">
@@ -1612,7 +1635,7 @@ export const devicesMixin = {
               <button type="button" class="${orientation === "landscape" ? "is-active" : ""}" data-template-orientation="landscape" title="Na šířku"><ha-icon icon="mdi:phone-rotate-landscape"></ha-icon></button>
             </div>
           </div>
-          <button type="button" class="display-template-send-button ${!this._templateSending && this._templateSendResult?.ok ? "is-success" : !this._templateSending && this._templateSendResult ? "is-error" : ""}" data-template-send ${assignedTemplates.length && !this._templateSending ? "" : "disabled"} title="${this._templateSendResult ? this._escape(this._templateSendResult.message) : "Odeslat aktuální obsah do fronty zápisu"}">
+          <button type="button" class="display-template-send-button ${!this._templateSending && this._templateSendResult?.ok ? "is-success" : !this._templateSending && this._templateSendResult ? "is-error" : ""}" data-template-send ${canSend && !this._templateSending ? "" : "disabled"} title="${this._templateSendResult ? this._escape(this._templateSendResult.message) : !canSend && assignedTemplates.length ? "Některá Script šablona není validní. Otevřete editor a klikněte Validovat." : "Odeslat aktuální obsah do fronty zápisu"}">
             <ha-icon icon="mdi:${this._templateSending ? "loading" : this._templateSendResult?.ok ? "check-circle" : this._templateSendResult ? "alert-circle" : "send"}" ${this._templateSending ? 'class="spin"' : ""}></ha-icon>
             <span><strong>${this._templateSending ? "Odesílám náhled…" : this._templateSendResult?.ok ? "Odesláno do fronty" : this._templateSendResult ? "Odeslání se nezdařilo" : "Odeslat do fronty"}</strong><small>${this._templateSendResult?.ok ? "Hotovo · přenos byl přijat" : this._templateSendResult ? "Podrobnosti zobrazíte podržením kurzoru" : assignedTemplates.length ? "Zapíše aktuální obsah displeje" : "Nejprve přetáhněte šablonu"}</small></span>
           </button>
@@ -1626,6 +1649,9 @@ export const devicesMixin = {
               </div>
               <button type="button" class="display-template-import-btn" data-display-template-import-trigger title="Vložit šablonu ze souboru (.json)">
                 <ha-icon icon="mdi:file-import-outline"></ha-icon> Importovat šablonu
+              </button>
+              <button type="button" class="display-template-import-btn" data-script-template-create title="Vytvořit script šablonu">
+                <ha-icon icon="mdi:script-text-outline"></ha-icon> Nová Script šablona
               </button>
               <input type="file" id="displayTemplateFileInput" accept=".json,.dratek-template.json" style="display:none">
               <span class="pill muted display-template-result-count">${visibleCards.length} šablon</span>
@@ -1680,7 +1706,7 @@ export const devicesMixin = {
             return `<article class="display-template-card display-template-drag-card is-config-${configStatus.state} ${userCreated ? "is-user-created" : ""} ${used ? "is-used" : ""} ${onDisplay ? "is-on-display" : ""} ${this._templateEditMenuId === template.id ? "has-edit-overlay" : ""}" draggable="true" data-display-template-drag="${template.id}" aria-label="${this._escape(template.title)}. Přetáhněte na displej.">
               <header class="display-template-tile-header">
                 <span class="display-template-kind-icon"><ha-icon icon="mdi:${userCreated ? "palette-outline" : template.kind === "prepared" ? "auto-fix" : "tune-variant"}"></ha-icon></span>
-                <span class="display-template-tile-identity"><strong>${this._escape(template.title)}</strong><small>${userCreated ? "Vytvořeno uživatelem" : template.kind === "prepared" ? "Automatické nastavení" : "Vlastní zdroje dat"}</small></span>
+                <span class="display-template-tile-identity"><strong>${this._escape(template.title)}</strong><small>${userCreated ? (template.template_type === "script" ? "Script Template" : "Vytvořeno uživatelem") : template.kind === "prepared" ? "Automatické nastavení" : "Vlastní zdroje dat"}</small></span>
                 ${userCreated ? `<button type="button" class="display-template-delete-btn" data-delete-user-template="${this._escape(template.id)}" title="Smazat uživatelskou šablonu ${this._escape(template.title)}" aria-label="Smazat uživatelskou šablonu ${this._escape(template.title)}"><ha-icon icon="mdi:trash-can-outline"></ha-icon></button>` : customImageCard ? `<button type="button" class="display-template-settings-shortcut" data-display-template-configure="custom_image" title="Otevřít obrázkové studio" aria-label="Změnit nebo přidat obrázek"><ha-icon icon="mdi:image-edit-outline"></ha-icon><span>Změnit / přidat</span></button>` : ""}
               </header>
               <div class="display-template-tile-preview is-${orientation}" data-display-template-select="${template.id}" role="button" tabindex="0" aria-label="Vybrat šablonu ${this._escape(template.title)} pro displej">
@@ -1689,7 +1715,7 @@ export const devicesMixin = {
                 ${customImageCard ? "" : `<button type="button" class="display-template-gear" data-display-template-configure="${this._escape(template.id)}" title="Nastavit zdroje dat šablony ${this._escape(template.title)}" aria-label="Nastavit zdroje dat šablony ${this._escape(template.title)}"><ha-icon icon="mdi:cog"></ha-icon></button>`}
               </div>
               <div class="display-template-tile-meta">
-                ${userCreated ? `<span class="user-template-created-note"><ha-icon icon="mdi:palette-outline"></ha-icon>Vytvořeno v eInk Studiu</span>` : customImageCard ? `<div class="display-template-meta-row"><button type="button" class="display-template-config-status is-complete" data-display-template-configure="custom_image"><ha-icon icon="mdi:image-multiple-outline"></ha-icon>${(this._templateImageLibrary || []).length} obrázků v galerii</button><span class="display-template-variables-row"><span class="display-template-variable-icon" title="Obrázková galerie"><ha-icon icon="mdi:image-multiple-outline"></ha-icon></span></span></div>` : `<div class="display-template-meta-row">
+                ${userCreated ? `<span class="user-template-created-note"><ha-icon icon="mdi:${template.template_type === "script" ? "script-text-outline" : "palette-outline"}"></ha-icon>${template.template_type === "script" ? "Script šablona" : "Vytvořeno v eInk Studiu"}</span>` : customImageCard ? `<div class="display-template-meta-row"><button type="button" class="display-template-config-status is-complete" data-display-template-configure="custom_image"><ha-icon icon="mdi:image-multiple-outline"></ha-icon>${(this._templateImageLibrary || []).length} obrázků v galerii</button><span class="display-template-variables-row"><span class="display-template-variable-icon" title="Obrázková galerie"><ha-icon icon="mdi:image-multiple-outline"></ha-icon></span></span></div>` : `<div class="display-template-meta-row">
                   <button type="button" class="display-template-config-status is-${configStatus.state}" data-display-template-configure="${this._escape(template.id)}" title="${configStatus.state === "complete" ? "Všechny zdroje dat jsou napojené na entity Home Assistantu. Kliknutím upravíte." : configStatus.state === "partial" ? `Napojeno ${configStatus.done} z ${configStatus.total} zdrojů dat. Kliknutím dokončíte.` : "Zdroje dat ještě nejsou napojené. Kliknutím je nastavíte."}"><ha-icon icon="mdi:${configStatus.state === "complete" ? "check-circle" : configStatus.state === "partial" ? "alert-circle" : "circle-off-outline"}"></ha-icon>${configStatus.state === "complete" ? "Nastaveno" : configStatus.state === "partial" ? `${configStatus.done}/${configStatus.total}` : "Nenastaveno"}</button>
                   <span class="display-template-variables-row" aria-label="Použité údaje">${(template.variables.length > 5 ? template.variables.slice(0, 4) : template.variables).map(([iconName, label]) => `<span class="display-template-variable-icon" title="${this._escape(label)}"><ha-icon icon="mdi:${iconName}"></ha-icon></span>`).join("")}${template.variables.length > 5 ? `<span class="display-template-variable-overflow" tabindex="0" aria-label="Další údaje: ${this._escape(template.variables.map(([, label]) => label).join(", "))}">
                     <span class="display-template-variable-overflow-badge">+${template.variables.length}</span>
@@ -1734,7 +1760,7 @@ export const devicesMixin = {
                     <ha-icon icon="mdi:chevron-right" class="option-arrow"></ha-icon>
                   </button>` : `<section class="card-edit-section is-main-section" aria-label="Co chcete změnit">
                     <div class="card-edit-section-label"><ha-icon icon="mdi:pencil-outline"></ha-icon><span>Co chcete změnit?</span></div>
-                    <button type="button" class="card-edit-option-btn is-primary-action is-data-action" data-display-template-edit-choice="variables" data-display-template-id="${this._escape(template.id)}">
+                    <button type="button" class="card-edit-option-btn is-primary-action is-data-action" data-display-template-edit-choice="variables" data-display-template-id="${this._escape(template.id)}" ${template.template_type === "script" ? "disabled" : ""}>
                       <span class="option-icon"><ha-icon icon="mdi:database-edit-outline"></ha-icon></span>
                       <div class="option-text">
                         <span class="option-eyebrow">Home Assistant</span>
@@ -1745,7 +1771,17 @@ export const devicesMixin = {
                       <ha-icon icon="mdi:chevron-right" class="option-arrow"></ha-icon>
                     </button>
 
-                    <button type="button" class="card-edit-option-btn is-primary-action is-design-action" data-display-template-edit-choice="designer" data-display-template-id="${this._escape(template.id)}">
+                    ${template.template_type === "script"
+                      ? `<button type="button" class="card-edit-option-btn is-primary-action is-design-action" data-display-template-edit-choice="script" data-display-template-id="${this._escape(template.id)}">
+                      <span class="option-icon"><ha-icon icon="mdi:script-text-outline"></ha-icon></span>
+                      <div class="option-text">
+                        <span class="option-eyebrow">Script Runtime</span>
+                        <strong>Skript a zdroje dat</strong>
+                        <small>Editace, validace a revize</small>
+                      </div>
+                      <ha-icon icon="mdi:chevron-right" class="option-arrow"></ha-icon>
+                    </button>`
+                      : `<button type="button" class="card-edit-option-btn is-primary-action is-design-action" data-display-template-edit-choice="designer" data-display-template-id="${this._escape(template.id)}">
                       <span class="option-icon is-live-preview">${this._renderDisplayTemplateCatalogPreviewSlot(template, orientation, size)}</span>
                       <div class="option-text">
                         <span class="option-eyebrow">eInk Studio</span>
@@ -1753,7 +1789,7 @@ export const devicesMixin = {
                         <small>Prvky, texty a grafika</small>
                       </div>
                       <ha-icon icon="mdi:chevron-right" class="option-arrow"></ha-icon>
-                    </button>
+                    </button>`}
                   </section>
 
                   <section class="card-edit-section is-file-section" aria-label="Soubor šablony">
@@ -1789,7 +1825,7 @@ export const devicesMixin = {
           }).join("")}</div>` : `<div class="display-template-empty"><ha-icon icon="mdi:magnify-close"></ha-icon><strong>Žádná šablona neodpovídá filtru</strong><span>Zkuste jiný název nebo druh šablony.</span></div>`}
         </section>
       </div>
-    </section>${settingsTemplate && this._templateSettingsDialogMode === "variables" ? this._renderTemplateSettingsDialog(settingsTemplate, largeDisplay ? "large" : "small", largeDisplay) : ""}${this._renderDisplayTemplateSetupDialog()}`;
+    </section>${settingsTemplate && this._templateSettingsDialogMode === "variables" ? this._renderTemplateSettingsDialog(settingsTemplate, largeDisplay ? "large" : "small", largeDisplay) : ""}${this._renderDisplayTemplateSetupDialog()}${this._renderScriptTemplateEditorDialog?.() || ""}`;
   },
 
   // Sits inside .display-template-device-info, right below the name row, in

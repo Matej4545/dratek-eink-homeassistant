@@ -134,6 +134,36 @@ class ProjectStorageCompatibilityTests(unittest.TestCase):
         self.assertEqual("shape-1", data["user_templates"][0]["editor_elements"][0]["id"])
         self.assertTrue(data["user_templates"][0]["user_created"])
 
+    def test_normalizes_script_user_templates(self) -> None:
+        data = PROJECT_STORAGE.normalize_project_data(
+            {
+                "user_templates": [
+                    {
+                        "id": "user-template-script",
+                        "title": "Script",
+                        "template_type": "script",
+                        "script_source": "return [{ text: 'Ahoj' }];",
+                        "data_sources": [
+                            {"id": "inside_temperature", "type": "entity", "entity_id": "sensor.temp"},
+                            {"id": "", "type": "entity"},
+                        ],
+                        "script_revision": "3",
+                        "script_validation": {"valid": True, "error": "", "updated_at": "9"},
+                        "editor_elements": [{"id": "legacy"}],
+                    }
+                ]
+            }
+        )
+
+        template = data["user_templates"][0]
+        self.assertEqual("script", template["template_type"])
+        self.assertEqual("return [{ text: 'Ahoj' }];", template["script_source"])
+        self.assertEqual(1, len(template["data_sources"]))
+        self.assertEqual("inside_temperature", template["data_sources"][0]["id"])
+        self.assertEqual(3, template["script_revision"])
+        self.assertTrue(template["script_validation"]["valid"])
+        self.assertEqual([], template["editor_elements"])
+
 
 if __name__ == "__main__":
     unittest.main()
