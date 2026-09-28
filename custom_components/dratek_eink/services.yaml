@@ -95,3 +95,39 @@ set_display_automation:
       default: false
       selector:
         boolean:
+
+set_display_layer:
+  name: Set display layer
+  description: Save, activate, or delete a named automation layer for one display.
+  fields:
+    address:
+      name: BLE address
+      description: BLE MAC address of the display.
+      required: true
+      example: "FF:FF:94:20:10:78"
+      selector:
+        text:
+    action:
+      name: Action
+      description: Layer operation to perform.
+      required: true
+      selector:
+        select:
+          options:
+            - save_current
+            - activate
+            - delete
+    layer:
+      name: Layer name
+      description: Name of the saved screen layer.
+      required: true
+      example: "night_mode"
+      selector:
+        text:
+    request_refresh:
+      name: Request refresh now
+      description: For activate action, queue an immediate refresh after switching the layer.
+      required: false
+      default: false
+      selector:
+        boolean:

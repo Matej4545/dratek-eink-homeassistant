@@ -63,6 +63,15 @@ SET_AUTOMATION_SCHEMA = vol.Schema(
     }
 )
 
+DISPLAY_LAYER_SCHEMA = vol.Schema(
+    {
+        vol.Required("address"): cv.string,
+        vol.Required("action"): vol.In(["save_current", "activate", "delete"]),
+        vol.Required("layer"): cv.string,
+        vol.Optional("request_refresh", default=False): cv.boolean,
+    }
+)
+
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     from .automation import get_entity_auto_update_manager
@@ -126,12 +135,38 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         if call.data.get("request_refresh"):
             await manager.async_request_refresh(normalized)
 
+    async def handle_set_display_layer(call: ServiceCall) -> None:
+        manager = get_entity_auto_update_manager(hass)
+        address = call.data["address"]
+        action = call.data["action"]
+        layer = call.data["layer"]
+        normalized = str(address).strip().upper()
+
+        if action == "save_current":
+            ok = await manager.async_save_layer(normalized, layer)
+        elif action == "activate":
+            ok = await manager.async_activate_layer(normalized, layer)
+            if ok and call.data.get("request_refresh"):
+                await manager.async_request_refresh(normalized)
+        else:
+            ok = await manager.async_delete_layer(normalized, layer)
+        if not ok:
+            raise ValueError(
+                f"Layer operation '{action}' failed for {normalized}: {layer}."
+            )
+
     hass.services.async_register(DOMAIN, "send_text", handle_send_text, schema=SEND_TEXT_SCHEMA)
     hass.services.async_register(
         DOMAIN,
         "set_display_automation",
         handle_set_automation,
         schema=SET_AUTOMATION_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "set_display_layer",
+        handle_set_display_layer,
+        schema=DISPLAY_LAYER_SCHEMA,
     )
     return True
 
