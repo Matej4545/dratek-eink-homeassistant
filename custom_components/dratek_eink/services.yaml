@@ -45,3 +45,89 @@ send_text:
           options:
             - black
             - red
+
+set_display_automation:
+  name: Set display automation
+  description: Update an existing automatic refresh configuration for one DRATEK eInk display.
+  fields:
+    address:
+      name: BLE address
+      description: BLE MAC address of the display whose automation should be updated.
+      required: true
+      example: "FF:FF:94:20:10:78"
+      selector:
+        text:
+    enabled:
+      name: Enabled
+      description: Enable or pause automatic refresh for this display.
+      required: false
+      selector:
+        boolean:
+    refresh_interval_seconds:
+      name: Refresh interval
+      description: Automatic refresh interval in seconds.
+      required: false
+      selector:
+        number:
+          min: 30
+          max: 86400
+          mode: box
+    refresh_trigger_mode:
+      name: Refresh trigger mode
+      description: Choose whether refreshes are triggered by state changes, interval, or both.
+      required: false
+      selector:
+        select:
+          options:
+            - both
+            - change_only
+            - interval_only
+    always_send:
+      name: Always send
+      description: Send the frame even when the rendered image has not changed.
+      required: false
+      selector:
+        boolean:
+    request_refresh:
+      name: Request refresh now
+      description: Queue an immediate refresh after applying the requested settings.
+      required: false
+      default: false
+      selector:
+        boolean:
+
+set_display_layer:
+  name: Set display layer
+  description: Save, activate, or delete a named automation layer for one display.
+  fields:
+    address:
+      name: BLE address
+      description: BLE MAC address of the display.
+      required: true
+      example: "FF:FF:94:20:10:78"
+      selector:
+        text:
+    action:
+      name: Action
+      description: Layer operation to perform.
+      required: true
+      selector:
+        select:
+          options:
+            - save_current
+            - activate
+            - delete
+    layer:
+      name: Layer name
+      description: Name of the saved screen layer.
+      required: true
+      example: "night_mode"
+      selector:
+        text:
+    request_refresh:
+      name: Request refresh now
+      description: For activate action, queue an immediate refresh after switching the layer.
+      required: false
+      default: false
+      selector:
+        boolean:

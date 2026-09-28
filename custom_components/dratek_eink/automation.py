@@ -774,6 +774,7 @@ class EntityAutoUpdateManager:
         self.hass = hass
         self._store = Store(hass, STORE_VERSION, STORE_KEY)
         self._configs: dict[str, dict[str, Any]] = {}
+        self._layers: dict[str, dict[str, dict[str, Any]]] = {}
         self._unsubscribe = None
         self._timers: dict[str, Any] = {}
         self._interval_timers: dict[str, Any] = {}
@@ -873,6 +874,18 @@ class EntityAutoUpdateManager:
     def _next_scheduled_wall_time(self, value: dict[str, float]) -> None:
         self._next_scheduled_wall_time_dict = value
 
+    @staticmethod
+    def _layer_name(value: Any) -> str:
+        return str(value or "").strip()[:80]
+
+    async def _async_save_store(self) -> None:
+        await self._store.async_save(
+            {
+                "configs": self._configs,
+                "layers": self._layers,
+            }
+        )
+
     async def async_initialize(self) -> None:
         if self._initialized:
             return
@@ -884,6 +897,25 @@ class EntityAutoUpdateManager:
             if isinstance(config, dict)
             and (config.get("bindings") or config.get("image_cycle"))
         }
+        layers = stored.get("layers") if isinstance(stored, dict) else {}
+        normalized_layers: dict[str, dict[str, dict[str, Any]]] = {}
+        if isinstance(layers, dict):
+            for address, by_name in layers.items():
+                if not isinstance(by_name, dict):
+                    continue
+                normalized_address = str(address).strip().upper()
+                if not normalized_address:
+                    continue
+                named_layers = {
+                    self._layer_name(layer_name): dict(layer_config)
+                    for layer_name, layer_config in by_name.items()
+                    if self._layer_name(layer_name)
+                    and isinstance(layer_config, dict)
+                    and (layer_config.get("bindings") or layer_config.get("image_cycle"))
+                }
+                if named_layers:
+                    normalized_layers[normalized_address] = named_layers
+        self._layers = normalized_layers
         self._initialized = True
         self._refresh_listener()
         initialized_at = time.monotonic()
@@ -1114,7 +1146,7 @@ class EntityAutoUpdateManager:
             if updated["enabled"]:
                 self._last_refresh_at[normalized] = time.monotonic()
                 self._last_refresh_wall_time[normalized] = time.time()
-        await self._store.async_save({"configs": self._configs})
+        await self._async_save_store()
         self._refresh_listener()
         self._sync_interval_timer(normalized)
 
@@ -1156,7 +1188,7 @@ class EntityAutoUpdateManager:
         updated = dict(config)
         updated["refresh_interval_seconds"] = interval
         self._configs[normalized] = updated
-        await self._store.async_save({"configs": self._configs})
+        await self._async_save_store()
         self._sync_interval_timer(normalized)
 
     async def async_list_configs(self) -> list[dict[str, Any]]:
@@ -1226,7 +1258,7 @@ class EntityAutoUpdateManager:
         updated = dict(config)
         updated["refresh_trigger_mode"] = resolved
         self._configs[normalized] = updated
-        await self._store.async_save({"configs": self._configs})
+        await self._async_save_store()
         # The periodic tick re-checks each config's mode on every tick, so
         # nothing extra is needed for "change_only". Switching into or out of
         # "interval_only" does need this: it changes which entities this
@@ -1247,7 +1279,7 @@ class EntityAutoUpdateManager:
         updated = dict(config)
         updated["always_send"] = resolved
         self._configs[normalized] = updated
-        await self._store.async_save({"configs": self._configs})
+        await self._async_save_store()
 
     async def async_set_enabled(self, address: str, enabled: Any) -> None:
         """Pause or resume a stored automatic display update in place."""
@@ -1274,7 +1306,7 @@ class EntityAutoUpdateManager:
             cancel_timer = self._timers.pop(normalized, None)
             if callable(cancel_timer):
                 cancel_timer()
-        await self._store.async_save({"configs": self._configs})
+        await self._async_save_store()
         self._refresh_listener()
         self._sync_interval_timer(normalized)
 
@@ -1309,7 +1341,7 @@ class EntityAutoUpdateManager:
             updated.pop("manual_gateway_id", None)
         self._configs[normalized] = updated
         self._gateway_route_cache_at = 0.0
-        await self._store.async_save({"configs": self._configs})
+        await self._async_save_store()
 
     async def async_remove_image_cycle_asset(self, address: str, image_id: str) -> None:
         """Remove a deleted gallery asset from the persisted automatic cycle."""
@@ -1331,7 +1363,7 @@ class EntityAutoUpdateManager:
             self._last_refresh_at.pop(normalized, None)
         else:
             self._configs[normalized] = updated
-        await self._store.async_save({"configs": self._configs})
+        await self._async_save_store()
         self._refresh_listener()
         self._sync_interval_timer(normalized)
 
@@ -1979,9 +2011,48 @@ class EntityAutoUpdateManager:
         config["base_image"] = await self.hass.async_add_executor_job(
             self._encode_base_image, image
         )
-        await self._store.async_save({"configs": self._configs})
+        await self._async_save_store()
         # setdefault: tests build this manager via __new__, bypassing __init__.
         self.__dict__.setdefault("_force_full_refresh", set()).discard(address)
+
+    async def async_save_layer(self, address: str, layer: Any) -> bool:
+        """Snapshot one display's current automation config under a layer name."""
+        await self.async_initialize()
+        normalized = str(address).strip().upper()
+        layer_name = self._layer_name(layer)
+        config = self._configs.get(normalized)
+        if not layer_name or not isinstance(config, dict):
+            return False
+        self._layers.setdefault(normalized, {})[layer_name] = dict(config)
+        await self._async_save_store()
+        return True
+
+    async def async_activate_layer(self, address: str, layer: Any) -> bool:
+        """Activate one previously saved layer as the live automation config."""
+        await self.async_initialize()
+        normalized = str(address).strip().upper()
+        layer_name = self._layer_name(layer)
+        config = self._layers.get(normalized, {}).get(layer_name)
+        if not layer_name or not isinstance(config, dict):
+            return False
+        await self.async_set_config(normalized, dict(config))
+        return True
+
+    async def async_delete_layer(self, address: str, layer: Any) -> bool:
+        """Delete one saved automation layer for a display."""
+        await self.async_initialize()
+        normalized = str(address).strip().upper()
+        layer_name = self._layer_name(layer)
+        if not layer_name:
+            return False
+        by_name = self._layers.get(normalized)
+        if not isinstance(by_name, dict) or layer_name not in by_name:
+            return False
+        by_name.pop(layer_name, None)
+        if not by_name:
+            self._layers.pop(normalized, None)
+        await self._async_save_store()
+        return True
 
     async def _async_refresh(self, address: str) -> dict[str, Any] | None:
         config = self._configs.get(address)
