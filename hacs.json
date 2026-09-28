@@ -1,6 +1,4 @@
 {
   "name": "DRATEK eInk",
-  "render_readme": true,
-  "zip_release": true,
-  "filename": "dratek_eink.zip"
+  "render_readme": true
 }
