@@ -40,7 +40,7 @@ const DONE_FIELD = { key: "done", kind: "bool", label: "Hotovo" };
 const DUO_KINDS = [
   "text", "icon", "stat", "list", "strip", "grid", "split",
   "checklist", "steps", "board", "datebox", "dial", "ring",
-  "meters", "bars", "spark",
+  "meters", "bars", "spark", "weatherChart",
 ];
 
 const TEMPLATE_BLOCK_KINDS = {
@@ -402,6 +402,29 @@ const TEMPLATE_BLOCK_KINDS = {
     ],
   },
 
+  weatherChart: {
+    label: "Graf počasí",
+    hint: "Teplotní křivka s hodinami, teplotami a srážkami v jednom grafu",
+    icon: "chart-bell-curve-cumulative",
+    w: 74, h: 40,
+    row: () => ({
+      weatherChart: {
+        values: [14, 13, 12, 12, 11, 11, 12, 15, 18, 20, 21, 22, 21, 20, 18, 16],
+        labels: ["20h 14°", "0h 12°", "4h 11°", "8h 18°", "12h 21°", "16h 18°"],
+        rain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0.4, 1.2, 2.5, 0.8, 0, 0, 0],
+        caption: "24 H · 11°–22°",
+        color: "red",
+      },
+    }),
+    fields: [
+      { path: "weatherChart.values", kind: "numbers", label: "Teploty oddělené čárkou" },
+      { path: "weatherChart.labels", kind: "texts", label: "Popisky v grafu oddělené čárkou" },
+      { path: "weatherChart.rain", kind: "numbers", label: "Srážky mm/h oddělené čárkou" },
+      { path: "weatherChart.caption", kind: "text", label: "Popisek" },
+      { path: "weatherChart.color", kind: "ink", label: "Barva křivky" },
+    ],
+  },
+
   pricetag: {
     label: "Cenovka",
     hint: "Cena, měna a přeškrtnutá původní cena",
@@ -484,7 +507,7 @@ const TEMPLATE_BLOCK_GROUPS = [
     id: "lists", title: "Seznamy a přehledy",
     kinds: ["list", "strip", "grid", "split", "checklist", "steps", "board", "datebox", "splitDates"],
   },
-  { id: "meters", title: "Ukazatele a grafy", kinds: ["dial", "ring", "meters", "bars", "spark"] },
+  { id: "meters", title: "Ukazatele a grafy", kinds: ["dial", "ring", "meters", "bars", "spark", "weatherChart"] },
   { id: "layout", title: "Rozvržení a speciální", kinds: ["duo", "pricetag", "barcode", "footer"] },
 ];
 
@@ -493,7 +516,7 @@ const TEMPLATE_BLOCK_GROUPS = [
 const BLOCK_DETECTION_ORDER = [
   "icon", "rule", "list", "stat", "band", "bars", "meters", "ring", "dial",
   "grid", "steps", "checklist", "strip", "split", "duo", "splitDates", "spark",
-  "datebox", "board", "barcode", "pricetag", "footer", "text",
+  "weatherChart", "datebox", "board", "barcode", "pricetag", "footer", "text",
 ];
 
 export const templateBlocksMixin = {

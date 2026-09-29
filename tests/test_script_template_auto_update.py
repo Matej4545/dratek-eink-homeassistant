@@ -124,6 +124,27 @@ class ScriptTemplateProbeTests(unittest.TestCase):
         self.assertEqual("Teplota 21.5 °C", payload["again"])
         self.assertEqual(2, payload["keys"])
 
+    def test_a_list_valued_source_is_never_probed_into_a_text_binding(self) -> None:
+        # An hourly forecast kept in an attribute is drawn by the script as a
+        # weatherChart; binding it as text would print the raw list over
+        # whichever label changed.
+        output = _run_node(self._panel("""
+          panel._hass.states["sensor.hourly"] = { state: "24", attributes: { forecast: [{ temperature: 14 }] } };
+          template.data_sources.push({ id: "hourly", type: "entity", entity_id: "sensor.hourly", entity_attribute: "forecast" });
+          const empty = { querySelector: () => null, querySelectorAll: () => [] };
+          globalThis.DOMParser = class { parseFromString() { return empty; } };
+          const probed = [];
+          panel._warmScriptTemplateRows = async () => {};
+          panel._alignTemplateTextRuns = () => [];
+          panel._buildDisplayTemplateSvg = async () => {
+            probed.push(Object.keys(panel._scriptTemplateDataOverrides));
+            return "<svg></svg>";
+          };
+          await panel._scriptTemplateAutomationBindings(template, 0, { templates: [template] }, empty, 296, 128);
+          console.log(JSON.stringify(probed));
+        """))
+        self.assertEqual([["user-template-script:inside"]], json.loads(output))
+
 
 class ScriptTemplateAutomationWiringTests(unittest.TestCase):
     def setUp(self) -> None:

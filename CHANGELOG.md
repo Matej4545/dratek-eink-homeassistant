@@ -2,6 +2,18 @@
 
 Všechny významné změny a historie verzí v projektu DRATEK eInk.
 
+## [Unreleased]
+
+### Přidáno
+
+- Nový řádkový blok **`weatherChart`** (Graf počasí) pro Script Template i Designer: teplotní křivka, popisky hodin a teplot přímo v grafu (např. „22h 15°“), tečkované svislé čáry u popisků a volitelný pás srážek pod křivkou (žlutý na čtyřbarevných displejích, šrafovaný na tříbarevných). Vlastnosti: `values`, `labels`, `rain`, `color` (výchozí `red`), `caption`. Popisek, který se nevejde, se vynechá – nikdy se neořízne ani nepřekryje sousední.
+- Backend má shodný port bloku (`svg_blocks.block_weather_chart` / `render_weather_chart`), testy hlídají, že dává stejné SVG jako panel.
+- Ukázka `examples/weather-minimal.script.js`: velká aktuální teplota a 24hodinový graf počasí (na širokém displeji vpravo, na úzkém pod teplotou).
+
+### Opraveno
+
+- Script Template už neváže zdroj dat, jehož hodnota je seznam nebo objekt (např. hodinová předpověď v atributu), jako textovou hodnotu pro automatickou aktualizaci. Dřív mohla automatická aktualizace vypsat surová data přes popisek, který skript z nich odvodil.
+
 ## [1.0.3-matej.1] - 2026-09-28
 
 ### Změněno

@@ -6,6 +6,8 @@ in frontend/panel/panel-template-svg.mixin.js that returns SVG markup for a box:
 `_blockStrip` and `_blockDatebox`. Four of those rows carry live data - a
 sparkline or bar chart (series), a gauge (ratio), a weather strip (day) and a
 calendar entry (event) - so an automatic refresh has to redraw them.
+`_blockWeatherChart` (the script templates' `weatherChart` row) is ported as
+`block_weather_chart` under the same rule.
 
 Redrawing them with PIL, as render.py did, can only ever approximate the shapes
 the browser drew: the arcs, the bar spacing, the text sizes and the ten-pixel
@@ -31,7 +33,7 @@ from typing import Any
 from PIL import Image
 
 from . import svg_render
-from .svg_text import svg_fit_font_size, svg_text, svg_text_width
+from .svg_text import MIN_READABLE_FONT_SIZE, svg_fit_font_size, svg_text, svg_text_width
 
 # The panel's own two ink constants (panel-template-svg.mixin.js). Both survive
 # quantize_bwr_preview as the panel's red and black, so the markup this module
@@ -591,6 +593,155 @@ def block_spark(
             )
         )
     return "".join(parts)
+
+
+def block_weather_chart(
+    chart: dict[str, Any],
+    box: dict[str, float],
+    preserve_yellow: bool = False,
+    compact: bool = False,
+) -> str:
+    """Port of `_blockWeatherChart` - temperature curve, in-plot labels and rain.
+
+    `labels` either lines up with `values` (blanks skipped) or is a shorter
+    list spread evenly across them. The rain band is yellow where the panel can
+    print it and a sparse black hatch where it cannot. `compact` is the row's
+    own `compact` flag, which lowers the readability floor to 8.5 px.
+    """
+    values = _finite_numbers(chart.get("values"))
+    count = len(values)
+    if count < 2:
+        return ""
+    floor = 8.5 if compact else MIN_READABLE_FONT_SIZE
+    top = max(values)
+    bottom = min(values)
+    span = (top - bottom) or 1
+    step = box["w"] / (count - 1)
+    line_ink = BLACK if chart.get("color") == "black" else RED
+    caption = chart.get("caption")
+    caption_size = max(floor, min(box["h"] * 0.14, 18))
+    caption_band = caption_size * 1.35 if caption is not None else 0.0
+    chart_y = box["y"] + caption_band
+    chart_h = max(1.0, box["h"] - caption_band)
+    axis_y = chart_y + chart_h - 1
+    line_width = max(2 if compact else 1.5, chart_h * 0.03)
+    label_size = max(floor, min(chart_h * 0.14, box["w"] * 0.035, 16))
+    label_band = label_size * 1.3
+    # Every label sits above the curve, so the curve is plotted under a band
+    # of that height.
+    plot_top = chart_y + label_band + line_width / 2 + 1
+    plot_bottom = axis_y - line_width / 2
+    plot_h = max(1.0, plot_bottom - plot_top)
+    points = [
+        (box["x"] + step * index, plot_bottom - ((value - bottom) / span) * plot_h)
+        for index, value in enumerate(values)
+    ]
+    drawn = " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
+
+    raw_labels = chart.get("labels") if isinstance(chart.get("labels"), list) else []
+    aligned = len(raw_labels) == count
+    labelled: list[tuple[int, str]] = []
+    for index, label in enumerate(raw_labels):
+        text = "" if label is None else str(label)
+        if not text:
+            continue
+        at = index if aligned else min(count - 1, math.floor((index * count) / len(raw_labels) + 0.5))
+        labelled.append((at, text))
+    spacing = (
+        min(abs(at - labelled[index][0]) for index, (at, _text) in enumerate(labelled[1:]))
+        if len(labelled) > 1
+        else count - 1
+    )
+    label_width = min(box["w"], max(step, step * spacing * 0.95))
+    # Shrunk towards the floor but never clipped; a label that still does not
+    # fit, or would collide with the one before it, is dropped.
+    placed: list[tuple[float, float, float, float, float, str, float]] = []
+    previous_right = -math.inf
+    for at, text in labelled:
+        px, py = points[at]
+        font_size = svg_fit_font_size(text, label_size, label_width, False, floor)
+        width = svg_text_width(text, font_size, False)
+        cx = max(box["x"] + width / 2 + 1, min(box["x"] + box["w"] - width / 2 - 1, px))
+        if width + 2 > box["w"] or cx - width / 2 - 1 < previous_right + 2:
+            continue
+        previous_right = cx + width / 2 + 1
+        # Above the highest stretch of curve the plate spans.
+        reach = width / 2 + 1 + step
+        local_top = min([y for x, y in points if abs(x - cx) <= reach] + [py])
+        cy = local_top - line_width / 2 - 1 - label_band / 2
+        placed.append((px, py, cx, cy, width, text, font_size))
+
+    parts: list[str] = []
+    raw_rain = chart.get("rain") if isinstance(chart.get("rain"), list) else []
+    rain = [max(0.0, _number(entry)) for entry in raw_rain[:count]]
+    rain += [0.0] * (count - len(rain))
+    rain_peak = max(rain)
+    if rain_peak > 0:
+        # 4 mm/h fills the band, so a drizzle stays a drizzle.
+        rain_scale = max(rain_peak, 4)
+        heights = [(amount / rain_scale) * plot_h * 0.6 for amount in rain]
+        edge = " ".join(
+            f"{points[index][0]:.2f},{axis_y - height:.2f}" for index, height in enumerate(heights)
+        )
+        if preserve_yellow:
+            parts.append(
+                f'<polygon points="{box["x"]:.2f},{axis_y:.2f} {edge}'
+                f' {box["x"] + box["w"]:.2f},{axis_y:.2f}"'
+                f' fill="{YELLOW}" fill-opacity="0.85"></polygon>'
+            )
+        else:
+            index = 0
+            while box["x"] + 1 + index * 3 < box["x"] + box["w"]:
+                x = box["x"] + 1 + index * 3
+                position = (x - box["x"]) / step
+                left = min(count - 2, math.floor(position))
+                height = heights[left] + (heights[left + 1] - heights[left]) * (position - left)
+                if height >= 1:
+                    parts.append(hairline(x - 0.5, axis_y - height, 1, height))
+                index += 1
+        parts.append(
+            f'<polyline points="{edge}" fill="none" stroke="{BLACK}" stroke-width="1"'
+            f' stroke-linejoin="round"></polyline>'
+        )
+    for px, *_rest in placed:
+        parts.append(
+            f'<line x1="{px:.2f}" y1="{chart_y:.2f}" x2="{px:.2f}" y2="{axis_y:.2f}" stroke="{BLACK}"'
+            f' stroke-width="1" stroke-dasharray="1 2"></line>'
+        )
+    parts.append(hairline(box["x"], axis_y, box["w"], 1))
+    parts.append(
+        f'<polyline points="{drawn}" fill="none" stroke="{line_ink}"'
+        f' stroke-width="{line_width:.2f}" stroke-linejoin="round"'
+        f' stroke-linecap="round"></polyline>'
+    )
+    for px, py, cx, cy, width, text, font_size in placed:
+        parts.append(
+            f'<rect x="{cx - width / 2 - 1:.2f}" y="{cy - label_band / 2:.2f}"'
+            f' width="{width + 2:.2f}" height="{label_band:.2f}" fill="#ffffff"></rect>'
+        )
+        parts.append(svg_text(text, cx, cy, font_size, min_size=floor))
+        parts.append(
+            f'<circle cx="{px:.2f}" cy="{py:.2f}" r="{max(1.5, line_width * 0.8):.2f}"'
+            f' fill="{line_ink}"></circle>'
+        )
+    if caption is not None:
+        parts.append(
+            svg_text(
+                caption,
+                box["x"],
+                box["y"] + caption_band * 0.5,
+                caption_size,
+                anchor="start",
+                max_width=box["w"],
+                min_size=floor,
+            )
+        )
+    return "".join(parts)
+
+
+# The name the weather-chart row goes by outside this module's `block_*`
+# convention.
+render_weather_chart = block_weather_chart
 
 
 def block_meters(
