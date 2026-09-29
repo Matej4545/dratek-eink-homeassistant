@@ -778,6 +778,7 @@ class EntityAutoUpdateManager:
         self._unsubscribe = None
         self._timers: dict[str, Any] = {}
         self._interval_timers: dict[str, Any] = {}
+        self._retained_refresh_settings: dict[str, dict[str, Any]] = {}
         self._refresh_tasks: dict[str, Any] = {}
         self._pending_refreshes: set[str] = set()
         self._last_refresh_at_dict: dict[str, float] = {}

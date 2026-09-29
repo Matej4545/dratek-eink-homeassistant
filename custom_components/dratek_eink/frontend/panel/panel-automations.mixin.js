@@ -12,7 +12,8 @@ const REFRESH_TRIGGER_OPTIONS = [
   ["interval_only", "Jen pravidelně (podle intervalu)"],
 ];
 
-export const automationsMixin = {  async _loadAutomations(render = true) {
+export const automationsMixin = {
+  async _loadAutomations(render = true) {
     if (!this._hass || this._automationsLoading) return;
     this._automationsLoading = true;
     this._automationsError = "";
@@ -57,6 +58,10 @@ export const automationsMixin = {  async _loadAutomations(render = true) {
   _syncRefreshSettingsFromAutomations(address = this._selectedDeviceAddress) {
     const automation = this._automationForAddress(address);
     if (!automation) return;
+    // A change made on the card is sent first and only then re-listed, so
+    // while one is in flight the stored value is still the old one - adopting
+    // it here would snap the select back for a moment.
+    if (this._automationBusyAddress && String(this._automationBusyAddress).toUpperCase() === String(automation.address || "").toUpperCase()) return;
     const seconds = Math.max(30, Math.min(86400, Number(automation.refresh_interval_seconds) || 600));
     const mode = ["both", "change_only", "interval_only"].includes(automation.refresh_trigger_mode)
       ? automation.refresh_trigger_mode

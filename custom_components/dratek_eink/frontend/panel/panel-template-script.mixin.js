@@ -304,10 +304,8 @@ export const templateScriptMixin = {
     return data;
   },
 
-  // Probe values injected in place of a data source's real value while the
-  // automation capture works out which rendered text run that source drives.
-  // Keyed `${template.id}:${source.id}`, exactly like the variable overrides
-  // the prepared templates use (_templateAutomationBindingOverrides).
+  // Cache-key fragment for the currently active probe values, so a render
+  // made with a marker injected never overwrites the real cached rows.
   _scriptTemplateDataOverrideSignature() {
     const overrides = this._scriptTemplateDataOverrides;
     const entries = overrides ? Object.entries(overrides) : [];
