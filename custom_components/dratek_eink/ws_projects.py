@@ -259,15 +259,24 @@ async def websocket_save_device_draft(
         }
     )
     data = await _load_project_data(hass)
+    previous = data["device_drafts"].get(address)
+    previous = previous if isinstance(previous, dict) else {}
     data["device_drafts"][address] = draft
     await _project_store(hass).async_save(data)
-    if "refresh_interval_seconds" in draft:
+    # Only a value the user actually changed in this draft may touch the live
+    # schedule. A draft carries whatever refresh settings it was stored with,
+    # and the interval/trigger are also editable straight from the automation
+    # cards - so pushing them on every autosave reset a display set to 30
+    # minutes back to the draft's stale 10-minute default.
+    interval = draft.get("refresh_interval_seconds")
+    if interval and interval != previous.get("refresh_interval_seconds"):
         await get_entity_auto_update_manager(hass).async_set_refresh_interval(
-            address, draft["refresh_interval_seconds"]
+            address, interval
         )
-    if "refresh_trigger_mode" in draft:
+    trigger_mode = draft.get("refresh_trigger_mode")
+    if trigger_mode and trigger_mode != previous.get("refresh_trigger_mode"):
         await get_entity_auto_update_manager(hass).async_set_refresh_trigger_mode(
-            address, draft["refresh_trigger_mode"]
+            address, trigger_mode
         )
     preview = await async_display_preview(hass, address)
     connection.send_result(msg["id"], {"draft": {**draft, **(preview or {})}})

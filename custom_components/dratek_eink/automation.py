@@ -1104,10 +1104,31 @@ class EntityAutoUpdateManager:
 
         timers[address] = async_call_later(self.hass, delay, _run)
 
+    def _retain_refresh_settings(
+        self, address: str, config: dict[str, Any] | None
+    ) -> None:
+        """Remember a display's chosen schedule across a design replacement.
+
+        Sending a new design clears the previous configuration before the new
+        one is installed, so without this the user's interval and trigger mode
+        were only ever as good as whatever the panel happened to put in the
+        payload - and a payload that omitted them silently reverted the
+        display to the 600 s default.
+        """
+        if not isinstance(config, dict):
+            return
+        retained = getattr(self, "_retained_refresh_settings", None)
+        if retained is None:
+            retained = self._retained_refresh_settings = {}
+        retained[address] = {
+            "refresh_interval_seconds": self._refresh_interval(config),
+            "refresh_trigger_mode": self._refresh_trigger_mode(config),
+        }
+
     async def async_set_config(self, address: str, config: dict[str, Any] | None) -> None:
         await self.async_initialize()
         normalized = address.upper()
-        self._configs.pop(normalized, None)
+        self._retain_refresh_settings(normalized, self._configs.pop(normalized, None))
         self._last_refresh_at.pop(normalized, None)
         self._pending_refreshes.discard(normalized)
         # Prune cached chart series for this address to avoid memory leaks
@@ -1137,6 +1158,20 @@ class EntityAutoUpdateManager:
         ):
             updated = dict(config)
             updated["enabled"] = self._automation_enabled(updated)
+            retained = getattr(self, "_retained_refresh_settings", {}).get(normalized, {})
+            # A design payload that says nothing about the schedule must not be
+            # read as "reset it": the interval and the trigger mode are set
+            # separately (automation cards, services) and survive the design
+            # they were chosen on. Only a genuinely new display - one with no
+            # retained setting at all - falls back to the default.
+            if not updated.get("refresh_interval_seconds") and retained.get(
+                "refresh_interval_seconds"
+            ):
+                updated["refresh_interval_seconds"] = retained["refresh_interval_seconds"]
+            if not updated.get("refresh_trigger_mode") and retained.get(
+                "refresh_trigger_mode"
+            ):
+                updated["refresh_trigger_mode"] = retained["refresh_trigger_mode"]
             updated["refresh_interval_seconds"] = self._refresh_interval(updated)
             updated["refresh_trigger_mode"] = self._refresh_trigger_mode(updated)
             self._configs[normalized] = updated
@@ -1160,11 +1195,23 @@ class EntityAutoUpdateManager:
             return
         await self.async_initialize()
         normalized = address.upper()
+        current = self._configs.get(normalized)
+        # Each installed design carries its own installation_id, so a failed
+        # upload can recognise its own configuration even when the stored copy
+        # kept a retained interval the payload never mentioned.
+        installation_id = str(config.get("installation_id") or "")
+        if (
+            installation_id
+            and isinstance(current, dict)
+            and str(current.get("installation_id") or "") == installation_id
+        ):
+            await self.async_set_config(normalized, None)
+            return
         expected = dict(config)
         expected["enabled"] = True
         expected["refresh_interval_seconds"] = self._refresh_interval(expected)
         expected["refresh_trigger_mode"] = self._refresh_trigger_mode(expected)
-        if self._configs.get(normalized) == expected:
+        if current == expected:
             await self.async_set_config(normalized, None)
 
     async def async_request_refresh(self, address: str) -> None:

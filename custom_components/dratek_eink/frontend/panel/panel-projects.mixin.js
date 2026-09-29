@@ -195,10 +195,18 @@ export const projectsMixin = {
     const source = this._normalizeStoredDraft(draft) || this._emptyDeviceDraft(device);
     this._orientation = source.orientation === "portrait" ? "portrait" : "landscape";
     this._displayTransform = source.display_transform || "rotate_cw";
-    this._refreshIntervalSeconds = Math.max(30, Math.min(86400, Number(source.refresh_interval_seconds) || 600));
+    // A draft that predates the refresh settings (or that was written before
+    // they were chosen) must not pull an active automation back to the 600 s
+    // default - the live schedule answers first, the default only for a
+    // display that has never had one.
+    const activeAutomation = this._automationForAddress?.(source.device_address || this._selectedDeviceAddress);
+    const storedInterval = Number(source.refresh_interval_seconds) || Number(activeAutomation?.refresh_interval_seconds) || 600;
+    this._refreshIntervalSeconds = Math.max(30, Math.min(86400, storedInterval));
     this._refreshTriggerMode = ["both", "change_only", "interval_only"].includes(source.refresh_trigger_mode)
       ? source.refresh_trigger_mode
-      : "interval_only";
+      : ["both", "change_only", "interval_only"].includes(activeAutomation?.refresh_trigger_mode)
+        ? activeAutomation.refresh_trigger_mode
+        : "interval_only";
     this._invertColors = false;
     this._backgroundColor = ["white", "black", "red"].includes(source.background_color) ? source.background_color : "white";
     const size = this._displaySize(device);

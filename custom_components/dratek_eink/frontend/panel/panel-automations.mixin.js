@@ -1,5 +1,18 @@
-export const automationsMixin = {
-  async _loadAutomations(render = true) {
+// Shared by the automation cards and by the pre-send controls on the display
+// page, so both offer exactly the same cadences with exactly the same labels.
+const REFRESH_INTERVAL_PRESETS = [
+  [30, "30 s"], [60, "1 min"], [300, "5 min"], [600, "10 min"],
+  [900, "15 min"], [1800, "30 min"], [3600, "1 hod"], [7200, "2 hod"],
+  [21600, "6 hod"], [43200, "12 hod"], [86400, "24 hod"],
+];
+
+const REFRESH_TRIGGER_OPTIONS = [
+  ["both", "Při změně i pravidelně"],
+  ["change_only", "Jen při změně entity"],
+  ["interval_only", "Jen pravidelně (podle intervalu)"],
+];
+
+export const automationsMixin = {  async _loadAutomations(render = true) {
     if (!this._hass || this._automationsLoading) return;
     this._automationsLoading = true;
     this._automationsError = "";
@@ -7,6 +20,7 @@ export const automationsMixin = {
     try {
       const result = await this._hass.callWS({ type: "dratek_eink/automations/list" });
       this._automations = Array.isArray(result?.automations) ? result.automations : [];
+      this._syncRefreshSettingsFromAutomations();
     } catch (err) {
       this._automationsError = this._message(err);
     } finally {
@@ -25,14 +39,58 @@ export const automationsMixin = {
     );
   },
 
+  _automationForAddress(address = this._selectedDeviceAddress) {
+    const normalized = String(address || "").toUpperCase();
+    if (!normalized) return null;
+    return (this._automations || []).find(
+      (item) => String(item.address || "").toUpperCase() === normalized
+    ) || null;
+  },
+
+  // The automation manager owns the live schedule: it is changed straight from
+  // the automation cards (update_interval / update_trigger_mode), which never
+  // touch the design draft. Without adopting it here the panel kept whatever
+  // the draft happened to carry - typically the 600 s default - and the next
+  // draft save or send pushed that stale value back over a user's chosen
+  // interval, which is how a display set to 30 minutes silently fell back to
+  // 10.
+  _syncRefreshSettingsFromAutomations(address = this._selectedDeviceAddress) {
+    const automation = this._automationForAddress(address);
+    if (!automation) return;
+    const seconds = Math.max(30, Math.min(86400, Number(automation.refresh_interval_seconds) || 600));
+    const mode = ["both", "change_only", "interval_only"].includes(automation.refresh_trigger_mode)
+      ? automation.refresh_trigger_mode
+      : this._refreshTriggerMode;
+    this._refreshIntervalSeconds = seconds;
+    this._refreshTriggerMode = mode;
+    const normalized = String(address || "").toUpperCase();
+    const draft = this._deviceDrafts?.[normalized];
+    if (draft && typeof draft === "object") {
+      draft.refresh_interval_seconds = seconds;
+      draft.refresh_trigger_mode = mode;
+    }
+  },
+
   _automationIntervalSelect(automation) {
     const seconds = Math.max(30, Math.min(86400, Number(automation.refresh_interval_seconds) || 600));
-    const presets = [
-      [30, "30 s"], [60, "1 min"], [300, "5 min"], [600, "10 min"],
-      [900, "15 min"], [1800, "30 min"], [3600, "1 hod"], [7200, "2 hod"],
-      [21600, "6 hod"], [43200, "12 hod"], [86400, "24 hod"],
-    ];
+    const presets = REFRESH_INTERVAL_PRESETS;
     return `<label class="automation-interval-field"><span>Interval obnovy</span><div><ha-icon icon="mdi:timer-cog-outline"></ha-icon><select aria-label="Interval automatického zápisu" data-automation-interval="${this._escape(automation.address)}" ${this._automationBusyAddress === automation.address ? "disabled" : ""}>${presets.map(([value, label]) => `<option value="${value}" ${seconds === value ? "selected" : ""}>Každých ${label}</option>`).join("")}</select><ha-icon class="automation-select-chevron" icon="mdi:chevron-down"></ha-icon></div></label>`;
+  },
+
+  // The same two controls before a display has an automation at all. A design
+  // built from a Script Template (or any other) can only pick its cadence up
+  // front, since the automation itself does not exist until the first send -
+  // and the values chosen here ride along in that send's automation config.
+  _displayRefreshIntervalSelect(address) {
+    const seconds = Math.max(30, Math.min(86400, Number(this._refreshIntervalSeconds) || 600));
+    return `<label class="automation-interval-field"><span>Interval obnovy</span><div><ha-icon icon="mdi:timer-cog-outline"></ha-icon><select aria-label="Interval automatického zápisu" data-device-refresh-interval="${this._escape(address)}">${REFRESH_INTERVAL_PRESETS.map(([value, label]) => `<option value="${value}" ${seconds === value ? "selected" : ""}>Každých ${label}</option>`).join("")}</select><ha-icon class="automation-select-chevron" icon="mdi:chevron-down"></ha-icon></div></label>`;
+  },
+
+  _displayRefreshTriggerSelect(address) {
+    const mode = ["both", "change_only", "interval_only"].includes(this._refreshTriggerMode)
+      ? this._refreshTriggerMode
+      : "interval_only";
+    return `<label class="automation-interval-field"><span>Co spouští obnovu</span><div><ha-icon icon="mdi:swap-horizontal"></ha-icon><select aria-label="Co spouští automatickou obnovu" data-device-refresh-trigger-mode="${this._escape(address)}">${REFRESH_TRIGGER_OPTIONS.map(([value, label]) => `<option value="${value}" ${mode === value ? "selected" : ""}>${label}</option>`).join("")}</select><ha-icon class="automation-select-chevron" icon="mdi:chevron-down"></ha-icon></div></label>`;
   },
 
   _automationIntervalLabel(automation) {
@@ -54,11 +112,7 @@ export const automationsMixin = {
     const mode = ["both", "change_only", "interval_only"].includes(automation.refresh_trigger_mode)
       ? automation.refresh_trigger_mode
       : "interval_only";
-    const options = [
-      ["both", "Při změně i pravidelně"],
-      ["change_only", "Jen při změně entity"],
-      ["interval_only", "Jen pravidelně (podle intervalu)"],
-    ];
+    const options = REFRESH_TRIGGER_OPTIONS;
     return `<label class="automation-interval-field"><span>Co spouští obnovu</span><div><ha-icon icon="mdi:swap-horizontal"></ha-icon><select aria-label="Co spouští automatickou obnovu" data-automation-trigger="${this._escape(automation.address)}" ${this._automationBusyAddress === automation.address ? "disabled" : ""}>${options.map(([value, label]) => `<option value="${value}" ${mode === value ? "selected" : ""}>${label}</option>`).join("")}</select><ha-icon class="automation-select-chevron" icon="mdi:chevron-down"></ha-icon></div></label>`;
   },
 
