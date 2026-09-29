@@ -186,6 +186,7 @@ class RefreshIntervalPreservationTests(unittest.TestCase):
         manager._pending_refreshes = set()
         manager._timers = {}
         manager._refresh_tasks = {}
+        manager._retained_refresh_settings = {}
 
         async def _save():
             return None

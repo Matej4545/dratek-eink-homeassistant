@@ -1118,6 +1118,9 @@ class EntityAutoUpdateManager:
         """
         if not isinstance(config, dict):
             return
+        # getattr rather than plain attribute access: the dict is created in
+        # __init__, but managers restored from an older running instance (and
+        # the ones the tests build with __new__) never ran it.
         retained = getattr(self, "_retained_refresh_settings", None)
         if retained is None:
             retained = self._retained_refresh_settings = {}
