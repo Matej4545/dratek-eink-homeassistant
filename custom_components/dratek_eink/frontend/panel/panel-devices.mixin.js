@@ -1846,9 +1846,22 @@ export const devicesMixin = {
     const address = String(device?.address || "").toUpperCase();
     const automation = (this._automations || []).find((item) => String(item.address || "").toUpperCase() === address);
     if (!automation) {
-      return `<div class="display-template-refresh-row is-empty">
+      // No automation exists until the first send, but the cadence it will be
+      // created with is chosen here - otherwise a design (a Script Template in
+      // particular) could only ever be sent with the default interval and
+      // corrected afterwards on the automations page.
+      const settingsOpen = this._displayRefreshSettingsOpen === true;
+      return `<div class="display-template-refresh-row is-empty ${settingsOpen ? "is-expanded" : ""}">
         <ha-icon icon="mdi:autorenew"></ha-icon>
         <span><strong>Automatický zápis</strong><small>Objeví se po prvním odeslání s napojenými hodnotami</small></span>
+        <button type="button" class="display-template-refresh-toggle" data-display-refresh-settings
+          aria-expanded="${settingsOpen ? "true" : "false"}" title="Nastavení obnovy">
+          <ha-icon icon="mdi:chevron-${settingsOpen ? "up" : "down"}"></ha-icon>
+        </button>
+        ${settingsOpen ? `<div class="display-template-refresh-fields">
+          ${this._displayRefreshIntervalSelect(address)}
+          ${this._displayRefreshTriggerSelect(address)}
+        </div>` : ""}
       </div>`;
     }
     const enabled = automation.enabled !== false;
@@ -3967,6 +3980,12 @@ export const devicesMixin = {
     return this._withRenderingDevice(device?.address, async () => {
       const request = this._currentDisplayTemplateSvgRequest(device);
     if (!request?.templates?.length || typeof DOMParser === "undefined") return { bindings: [], svgTemplate: "" };
+    // A script template resolves its rows asynchronously and paints a "loading"
+    // placeholder until they land. Warm them first so the document captured
+    // below is the real design rather than that placeholder.
+    try {
+      await this._warmScriptTemplateRows?.(request.templates, width, height, request.layout);
+    } catch (_error) { /* the script's own error rows are captured as they are */ }
     const currentSvg = await this._buildDisplayTemplateSvg(request.templates, width, height, request.layout);
     const currentDocument = new DOMParser().parseFromString(currentSvg, "image/svg+xml");
     // Scoped per slot, the same way the graphic rows below are and for the same
@@ -3987,6 +4006,14 @@ export const devicesMixin = {
     for (let slotIndex = 0; slotIndex < request.templates.length; slotIndex += 1) {
       const template = request.templates[slotIndex];
       if (!template) continue;
+      // A script template has no v() variables to probe: its values come from
+      // its own data sources, so it captures them itself.
+      if (this._isScriptUserTemplate?.(template)) {
+        bindings.push(...await this._scriptTemplateAutomationBindings(
+          template, slotIndex, request, currentDocument, width, height,
+        ));
+        continue;
+      }
       const currentTexts = textsInSlot(currentDocument, slotIndex);
       // A ratio()-driven dial/ring/meter row is fully redrawn by its own
       // "ratio" binding below (fill, label AND the value text together, the

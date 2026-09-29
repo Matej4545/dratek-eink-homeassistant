@@ -254,9 +254,15 @@ export const templateScriptMixin = {
 
   async _resolveScriptTemplateDataSources(template) {
     const data = {};
+    const overrides = this._scriptTemplateDataOverrides || {};
     for (const source of template?.data_sources || []) {
       const key = String(source?.id || "").trim();
       if (!key) continue;
+      const override = overrides[`${template?.id || ""}:${key}`];
+      if (override !== undefined) {
+        data[key] = override;
+        continue;
+      }
       const sourceType = String(source?.type || "entity");
       if (sourceType === "entity") {
         const entityId = String(source.entity_id || "").trim();
@@ -298,10 +304,20 @@ export const templateScriptMixin = {
     return data;
   },
 
+  // Cache-key fragment for the currently active probe values, so a render
+  // made with a marker injected never overwrites the real cached rows.
+  _scriptTemplateDataOverrideSignature() {
+    const overrides = this._scriptTemplateDataOverrides;
+    const entries = overrides ? Object.entries(overrides) : [];
+    if (!entries.length) return "";
+    return entries.sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join(",");
+  },
+
   _scriptTemplateRowsKey(template, width, height) {
     const signature = this._hass?.states || null;
     const stamp = Number(template?.updated_at) || Number(template?.script_revision) || 0;
-    return `${template?.id || "script"}:${stamp}:${width}x${height}:${signature ? "live" : "none"}`;
+    const overrides = this._scriptTemplateDataOverrideSignature();
+    return `${template?.id || "script"}:${stamp}:${width}x${height}:${signature ? "live" : "none"}${overrides ? `:${overrides}` : ""}`;
   },
 
   _scriptTemplateLoadingRows(template) {
@@ -454,12 +470,7 @@ export const templateScriptMixin = {
     this._scriptTemplateRowsPending.add(key);
     this._scriptTemplateRowsCache.set(key, { status: "pending" });
     Promise.resolve()
-      .then(async () => {
-        const data = await this._resolveScriptTemplateDataSources(template);
-        const result = await this._executeScriptTemplateSandbox(template.script_source, { width, height, data });
-        const rows = this._sanitizeScriptTemplateRows(result);
-        this._scriptTemplateRowsCache.set(key, { status: "ready", rows });
-      })
+      .then(() => this._resolveScriptTemplateRows(template, width, height))
       .catch((error) => {
         this._scriptTemplateRowsCache.set(key, { status: "error", error: clampText(error?.message || error, 2000) });
       })
@@ -469,6 +480,119 @@ export const templateScriptMixin = {
         this._paint();
       });
     return this._scriptTemplateLoadingRows(template);
+  },
+
+  // Resolves and caches the rows right now instead of painting a placeholder
+  // first. The automation capture below needs the real rows (and the rows a
+  // probe value produces) inside the very same turn it builds the SVG from,
+  // because _templateSvgRows - which _buildDisplayTemplateSvg calls - can only
+  // read what is already in the cache.
+  async _resolveScriptTemplateRows(template, width, height) {
+    this._scriptTemplateRowsCache ||= new Map();
+    const key = this._scriptTemplateRowsKey(template, width, height);
+    const cached = this._scriptTemplateRowsCache.get(key);
+    if (cached?.status === "ready") return cached.rows;
+    if (cached?.status === "error") throw new Error(cached.error);
+    const data = await this._resolveScriptTemplateDataSources(template);
+    const result = await this._executeScriptTemplateSandbox(template?.script_source, { width, height, data });
+    const rows = this._sanitizeScriptTemplateRows(result);
+    this._scriptTemplateRowsCache.set(key, { status: "ready", rows });
+    return rows;
+  },
+
+  async _warmScriptTemplateRows(templates, width, height, layout = "single") {
+    const slots = this._displayTemplateLayoutSlots?.(layout, width, height)
+      || [{ x: 0, y: 0, w: width, h: height }];
+    for (let index = 0; index < (templates || []).length; index += 1) {
+      const template = templates[index];
+      if (!this._isScriptUserTemplate?.(template)) continue;
+      const slot = slots[index] || slots[0] || { w: width, h: height };
+      await this._resolveScriptTemplateRows(template, slot.w, slot.h);
+    }
+  },
+
+  // A probe render is worth nothing once its binding has been read, so it must
+  // not stay in the cache the real renders share.
+  _forgetScriptTemplateProbeRows(signature) {
+    if (!signature || !this._scriptTemplateRowsCache) return;
+    for (const key of [...this._scriptTemplateRowsCache.keys()]) {
+      if (key.endsWith(`:${signature}`)) this._scriptTemplateRowsCache.delete(key);
+    }
+  },
+
+  // Turns a script template's entity data sources into the same "text"
+  // bindings a prepared template produces, so an automatic refresh re-reads
+  // their current state and re-renders the script's own output instead of
+  // rewriting the stale bitmap of the manual send. The probe works exactly
+  // like _preparedTemplateEntityBindings': swap one source's value for a
+  // marker, re-render, and whichever run changed is the one that source
+  // drives.
+  async _scriptTemplateAutomationBindings(template, slotIndex, request, currentDocument, width, height) {
+    if (!this._isScriptUserTemplate?.(template) || typeof DOMParser === "undefined") return [];
+    const sources = (template.data_sources || []).filter((source) => (
+      String(source?.type || "entity") === "entity"
+      && String(source?.id || "").trim()
+      && String(source?.entity_id || "").trim()
+    ));
+    if (!sources.length) return [];
+    const textsInSlot = (documentNode) => {
+      const root = documentNode.querySelector(`[data-template-slot="${slotIndex}"]`);
+      return [...(root || documentNode).querySelectorAll("text")];
+    };
+    const currentTexts = textsInSlot(currentDocument);
+    const bindings = [];
+    this._scriptTemplateDataOverrides ||= {};
+    for (const [index, source] of sources.entries()) {
+      const key = String(source.id).trim();
+      const marker = `QZS${index}X`;
+      let markedSvg = "";
+      this._scriptTemplateDataOverrides[`${template.id}:${key}`] = marker;
+      const probeSignature = this._scriptTemplateDataOverrideSignature();
+      try {
+        await this._warmScriptTemplateRows(request.templates, width, height, request.layout);
+        markedSvg = await this._buildDisplayTemplateSvg(request.templates, width, height, request.layout);
+      } catch (_error) {
+        // A script that cannot cope with the probe value simply contributes no
+        // binding for that source - never a guessed one.
+        markedSvg = "";
+      } finally {
+        delete this._scriptTemplateDataOverrides[`${template.id}:${key}`];
+        this._forgetScriptTemplateProbeRows(probeSignature);
+      }
+      if (!markedSvg) continue;
+      const markedTexts = textsInSlot(new DOMParser().parseFromString(markedSvg, "image/svg+xml"));
+      const meta = { key, label: key, icon: "", templateId: template.id };
+      let occurrence = 0;
+      for (const { marked, current } of this._alignTemplateTextRuns(markedTexts, currentTexts)) {
+        const markedText = String(marked?.textContent || "");
+        const drivenBySource = markedText.includes(marker) || markedText !== String(current?.textContent || "");
+        if (!drivenBySource || !current) continue;
+        if (current.closest?.("[data-template-block]")) continue;
+        let valuePrefix = "";
+        let valueSuffix = "";
+        if (markedText.includes(marker)) {
+          const markerIndex = markedText.indexOf(marker);
+          valuePrefix = markedText.slice(0, markerIndex);
+          valueSuffix = markedText.slice(markerIndex + marker.length);
+        }
+        const binding = this._templateAutomationTextBinding(
+          currentDocument, current, String(source.entity_id).trim(), meta,
+          occurrence++, width, height, valuePrefix, valueSuffix, slotIndex,
+        );
+        // A script formats its own values: the attribute it asked for, and no
+        // unit or state word appended behind its back.
+        binding.entity_attribute = String(source.entity_attribute || "").trim();
+        binding.include_unit = false;
+        binding.kind = "";
+        bindings.push(binding);
+      }
+    }
+    // Leave the cache holding the unprobed rows again, so the next render (and
+    // the image actually sent) shows real values rather than the last marker.
+    try {
+      await this._warmScriptTemplateRows(request.templates, width, height, request.layout);
+    } catch (_error) { /* the script's own error rows already explain this */ }
+    return bindings;
   },
 
   _scriptTemplateRows(template, width, height) {

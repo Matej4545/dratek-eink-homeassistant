@@ -75,7 +75,13 @@ class BackendTriggerModeWiringTests(unittest.TestCase):
             'await get_entity_auto_update_manager(hass).async_set_refresh_trigger_mode(',
             self.ws_projects,
         )
-        self.assertIn('if "refresh_trigger_mode" in draft:', self.ws_projects)
+        self.assertIn('trigger_mode = draft.get("refresh_trigger_mode")', self.ws_projects)
+        # Only a value the draft actually changes may touch the live schedule;
+        # an unchanged one must never reset it (see ScriptTemplateAutoUpdate).
+        self.assertIn(
+            'if trigger_mode and trigger_mode != previous.get("refresh_trigger_mode"):',
+            self.ws_projects,
+        )
 
 
 if __name__ == "__main__":
