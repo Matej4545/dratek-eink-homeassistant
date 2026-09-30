@@ -535,6 +535,20 @@ export const templateScriptMixin = {
       && String(source?.entity_id || "").trim()
     ));
     if (!sources.length) return [];
+    // A text binding can only put a value back where the script printed it
+    // as-is. A source that resolves to a list or an object - an hourly
+    // forecast kept in an attribute, say - is reshaped by the script into a
+    // chart or several lines, and probing it would bind the whole raw value
+    // to whichever text happened to change; those rows keep the manual send.
+    let live = {};
+    try {
+      live = await this._resolveScriptTemplateDataSources(template);
+    } catch (_error) { /* then every source is probed as before */ }
+    const scalarSources = sources.filter((source) => {
+      const value = live?.[String(source.id).trim()];
+      return value === null || typeof value !== "object";
+    });
+    if (!scalarSources.length) return [];
     const textsInSlot = (documentNode) => {
       const root = documentNode.querySelector(`[data-template-slot="${slotIndex}"]`);
       return [...(root || documentNode).querySelectorAll("text")];
@@ -542,7 +556,7 @@ export const templateScriptMixin = {
     const currentTexts = textsInSlot(currentDocument);
     const bindings = [];
     this._scriptTemplateDataOverrides ||= {};
-    for (const [index, source] of sources.entries()) {
+    for (const [index, source] of scalarSources.entries()) {
       const key = String(source.id).trim();
       const marker = `QZS${index}X`;
       let markedSvg = "";

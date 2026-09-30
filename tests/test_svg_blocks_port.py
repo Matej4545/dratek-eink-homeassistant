@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -96,7 +97,13 @@ m._svgWeatherIcon = function (name, cx, cy, size) {
 
 const cases = JSON.parse(process.argv[1]);
 const out = {};
-for (const [key, spec] of Object.entries(cases)) out[key] = m[spec.fn].call(m, spec.row, spec.box);
+const supportsYellow = m._displaySupportsYellow;
+for (const [key, spec] of Object.entries(cases)) {
+  // A case may pin the panel to three colours - the one block that asks the
+  // display directly (the weather chart's rain band) draws differently there.
+  m._displaySupportsYellow = spec.yellow === false ? () => false : supportsYellow;
+  out[key] = m[spec.fn].call(m, spec.row, spec.box);
+}
 process.stdout.write(JSON.stringify(out));
 """
 
@@ -129,6 +136,25 @@ DATEBOX = {
     "day": "23", "month": "KVĚ", "color": "red",
     "lines": ["Schůzka s velmi dlouhým názvem", "15:00 · kancelář"],
 }
+
+# The hourly forecast from the issue that asked for the weather chart: 24 hours
+# from 20:00, 10.9-21.6 °C, no rain - plus the same day with a shower added.
+HOURLY = [14.5, 13.9, 13.2, 12.5, 11.9, 11.7, 11.7, 11.6, 11.3, 10.9, 12, 14.2,
+          16.2, 18.1, 19.5, 20.6, 21.2, 21.6, 21.5, 21.1, 19.7, 18, 16.9, 16.1]
+SHOWER = [0] * 14 + [0.4, 1.2, 3.5, 2.1, 0.5] + [0] * 5
+WEATHER_CHART = {
+    "values": HOURLY,
+    "labels": ["20h 15°", "0h 12°", "4h 11°", "8h 16°", "12h 21°", "16h 20°"],
+    "caption": "24 H · 11°–22°",
+}
+# Aligned labels: one entry per hour, only every sixth one filled.
+ALIGNED_LABELS = ["" if index % 6 != 2 else f"{(20 + index) % 24}h {round(value)}°"
+                  for index, value in enumerate(HOURLY)]
+# The right-hand column the landscape layout gives a chart on 296x128 and
+# 250x128 tags, and the full-width row a portrait panel stacks it in.
+CHART_296 = {"x": 129, "y": 36, "w": 161, "h": 86}
+CHART_250 = {"x": 110, "y": 34, "w": 134, "h": 88}
+CHART_PORTRAIT = {"x": 4, "y": 150, "w": 120, "h": 110}
 
 # (name, JS block, JS row, box, the Python call that must reproduce it).
 CASES = [
@@ -223,6 +249,45 @@ CASES = [
         TALL,
         lambda: svg_blocks.block_spark({**SPARK, "accent": "yellow"}, TALL, True),
     ),
+    (
+        "weather_chart",
+        "_blockWeatherChart",
+        {"weatherChart": WEATHER_CHART},
+        CHART_296,
+        lambda: svg_blocks.block_weather_chart(WEATHER_CHART, CHART_296),
+    ),
+    (
+        "weather_chart_rain_yellow",
+        "_blockWeatherChart",
+        {"weatherChart": {**WEATHER_CHART, "rain": SHOWER}},
+        TALL,
+        lambda: svg_blocks.render_weather_chart({**WEATHER_CHART, "rain": SHOWER}, TALL, True),
+    ),
+    (
+        "weather_chart_rain_hatched",
+        "_blockWeatherChart",
+        {"weatherChart": {**WEATHER_CHART, "rain": SHOWER}},
+        CHART_296,
+        lambda: svg_blocks.block_weather_chart({**WEATHER_CHART, "rain": SHOWER}, CHART_296, False),
+    ),
+    (
+        "weather_chart_compact_250",
+        "_blockWeatherChart",
+        {"weatherChart": {**WEATHER_CHART, "labels": ALIGNED_LABELS, "color": "black"}, "compact": True},
+        CHART_250,
+        lambda: svg_blocks.block_weather_chart(
+            {**WEATHER_CHART, "labels": ALIGNED_LABELS, "color": "black"}, CHART_250, compact=True
+        ),
+    ),
+    (
+        "weather_chart_portrait",
+        "_blockWeatherChart",
+        {"weatherChart": {"values": HOURLY, "labels": ALIGNED_LABELS, "rain": SHOWER}},
+        CHART_PORTRAIT,
+        lambda: svg_blocks.block_weather_chart(
+            {"values": HOURLY, "labels": ALIGNED_LABELS, "rain": SHOWER}, CHART_PORTRAIT, False
+        ),
+    ),
     # A protected template keeps its own palette: no `modern`, so the accent on
     # the shape must be ignored on both sides rather than quietly painting
     # cz_spot_prices yellow.
@@ -236,9 +301,16 @@ CASES = [
 ]
 
 
+# Cases the panel draws for a display with no yellow ink.
+THREE_COLOUR_CASES = {"weather_chart_rain_hatched", "weather_chart_portrait"}
+
+
 def _javascript_markup() -> dict[str, str]:
     payload = json.dumps(
-        {name: {"fn": block, "row": row, "box": box} for name, block, row, box, _python in CASES}
+        {
+            name: {"fn": block, "row": row, "box": box, "yellow": name not in THREE_COLOUR_CASES}
+            for name, block, row, box, _python in CASES
+        }
     )
     script = NODE_HARNESS % {"module": json.dumps(PANEL_SVG.as_uri())}
     node = shutil.which("node")
@@ -266,6 +338,41 @@ class BlockMarkupPortTests(unittest.TestCase):
                 expected = self.reference[name].replace(PANEL_FONT, BACKEND_FONT)
                 self.assertTrue(expected, f"{name} produced no reference markup")
                 self.assertEqual(expected, python())
+
+
+class WeatherChartLegibilityTests(unittest.TestCase):
+    """In-plot labels stay whole, inside the box and clear of each other."""
+
+    PLATE = re.compile(
+        r'<rect x="([\d.-]+)" y="([\d.-]+)" width="([\d.-]+)" height="([\d.-]+)" fill="#ffffff">'
+    )
+
+    def test_labels_neither_clip_nor_overlap_on_small_tags(self) -> None:
+        charts = {
+            "sparse": {**WEATHER_CHART, "rain": SHOWER},
+            "aligned": {**WEATHER_CHART, "labels": ALIGNED_LABELS},
+        }
+        for box_name, box in (("296", CHART_296), ("250", CHART_250), ("portrait", CHART_PORTRAIT)):
+            for chart_name, chart in charts.items():
+                for compact in (False, True):
+                    with self.subTest(box=box_name, chart=chart_name, compact=compact):
+                        markup = svg_blocks.block_weather_chart(chart, box, compact=compact)
+                        self.assertNotIn("…", markup)
+                        plates = [tuple(map(float, match)) for match in self.PLATE.findall(markup)]
+                        self.assertGreaterEqual(len(plates), 2)
+                        for x, y, w, h in plates:
+                            self.assertGreaterEqual(x, box["x"])
+                            self.assertLessEqual(x + w, box["x"] + box["w"])
+                            self.assertGreaterEqual(y, box["y"])
+                        for (x1, _y1, w1, _h1), (x2, _y2, _w2, _h2) in zip(plates, plates[1:]):
+                            self.assertLess(x1 + w1, x2)
+                        sizes = [float(size) for size in re.findall(r'font-size="([\d.]+)"', markup)]
+                        self.assertGreaterEqual(min(sizes), 8.5 if compact else 10)
+
+    def test_no_rain_band_on_a_dry_day(self) -> None:
+        dry = svg_blocks.block_weather_chart({**WEATHER_CHART, "rain": [0] * 24}, CHART_296, True)
+        self.assertNotIn("<polygon", dry)
+        self.assertNotIn('stroke-linejoin="round"></polyline>', dry)
 
 
 class BlockConstantTests(unittest.TestCase):

@@ -1407,6 +1407,7 @@ export const templateSvgMixin = {
     if (row.duo) return this._blockDuo(row, box);
     if (row.splitDates) return this._blockSplitDates(row, box);
     if (row.spark) return this._blockSpark(row, box);
+    if (row.weatherChart) return this._blockWeatherChart(row, box);
     if (row.datebox) return this._blockDatebox(row, box);
     if (row.board) return this._blockBoard(row, box);
     if (row.qr) return this._blockQr(row, box);
@@ -2426,6 +2427,127 @@ if (dial.min != null) parts.push(this._svgText(dial.min, cx - outer, scaleY, sca
     const [lastX, lastY] = points[points.length - 1];
     parts.push(`<circle cx="${lastX.toFixed(2)}" cy="${lastY.toFixed(2)}" r="${Math.max(1.5, chartH * 0.08).toFixed(2)}" fill="${RED}"></circle>`);
     if (captioned) parts.push(this._svgText(row.spark.caption, box.x, box.y + captionBand * 0.5, captionSize, { anchor: "start", bold: false, minSize: row.compact ? 9 : undefined, maxWidth: box.w * 0.6 }));
+    return parts.join("");
+  },
+
+  // Temperature curve, hour/temperature labels and an optional rain band in one
+  // box. A spark, a strip and a bar chart stacked on top of each other split
+  // one forecast into three rows that each had to be read separately, and none
+  // of them could put "14h 22°" next to the point it describes.
+  //
+  // `labels` either lines up with `values` (one entry per point, blanks
+  // skipped) or is a shorter list spread evenly across them - six labels over
+  // 24 hours land on every fourth point. The line is red unless the row asks
+  // for black: yellow type or a yellow line is invisible on the paper.
+  //
+  // svg_blocks.block_weather_chart is a port of this; change both together.
+  _blockWeatherChart(row, box) {
+    const chart = row.weatherChart;
+    const values = (chart.values || []).map(Number).filter(Number.isFinite);
+    const count = values.length;
+    if (count < 2) return "";
+    const floor = row.compact ? 8.5 : MIN_READABLE_FONT_SIZE;
+    const top = Math.max(...values);
+    const bottom = Math.min(...values);
+    const span = top - bottom || 1;
+    const step = box.w / (count - 1);
+    const ink = chart.color === "black" ? BLACK : RED;
+    const captioned = chart.caption != null;
+    const captionSize = Math.max(floor, Math.min(box.h * 0.14, 18));
+    const captionBand = captioned ? captionSize * 1.35 : 0;
+    const chartY = box.y + captionBand;
+    const chartH = Math.max(1, box.h - captionBand);
+    const axisY = chartY + chartH - 1;
+    const lineWidth = Math.max(row.compact ? 2 : 1.5, chartH * 0.03);
+    const labelSize = Math.max(floor, Math.min(chartH * 0.14, box.w * 0.035, 16));
+    const labelBand = labelSize * 1.3;
+    // Every label sits above its own point, so the curve is plotted under a
+    // band of that height: the highest point still has room for its label
+    // without reaching into the caption.
+    const plotTop = chartY + labelBand + lineWidth / 2 + 1;
+    const plotBottom = axisY - lineWidth / 2;
+    const plotH = Math.max(1, plotBottom - plotTop);
+    const points = values.map((value, index) => [box.x + step * index, plotBottom - ((value - bottom) / span) * plotH]);
+    const path = points.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
+
+    const rawLabels = Array.isArray(chart.labels) ? chart.labels : [];
+    const aligned = rawLabels.length === count;
+    const labelled = [];
+    rawLabels.forEach((label, index) => {
+      const text = String(label ?? "");
+      if (!text) return;
+      const at = aligned ? index : Math.min(count - 1, Math.floor((index * count) / rawLabels.length + 0.5));
+      labelled.push([at, text]);
+    });
+    const spacing = labelled.length > 1
+      ? Math.min(...labelled.slice(1).map(([at], index) => Math.abs(at - labelled[index][0])))
+      : count - 1;
+    const labelWidth = Math.min(box.w, Math.max(step, step * spacing * 0.95));
+    // A label shrinks towards the readable floor to fit its share of the
+    // width but is never clipped - "20h…" says nothing. One that still does
+    // not fit, or would collide with the label before it, is dropped instead.
+    const placed = [];
+    let previousRight = -Infinity;
+    labelled.forEach(([at, text]) => {
+      const [px, py] = points[at];
+      const fontSize = this._svgFitFontSize(text, labelSize, labelWidth, false, floor);
+      const width = this._svgTextWidth(text, fontSize, false);
+      const cx = Math.max(box.x + width / 2 + 1, Math.min(box.x + box.w - width / 2 - 1, px));
+      if (width + 2 > box.w || cx - width / 2 - 1 < previousRight + 2) return;
+      previousRight = cx + width / 2 + 1;
+      // Above the highest stretch of curve the plate spans, not just above its
+      // own point: on a steep rise the plate would otherwise hide the line.
+      const reach = width / 2 + 1 + step;
+      const localTop = Math.min(...points.filter(([x]) => Math.abs(x - cx) <= reach).map(([, y]) => y), py);
+      placed.push({ px, py, cx, cy: localTop - lineWidth / 2 - 1 - labelBand / 2, width, text, fontSize });
+    });
+
+    const parts = [];
+    // Rain goes in first, so everything else is drawn over it. Yellow is a
+    // surface the four-colour panel prints well; a three-colour one has no
+    // light ink at all, so there the band is a sparse black hatch - which the
+    // eye reads as the light grey a threshold would otherwise turn white.
+    const rain = (Array.isArray(chart.rain) ? chart.rain : []).slice(0, count).map((entry) => {
+      const amount = Number(entry);
+      return Number.isFinite(amount) && amount > 0 ? amount : 0;
+    });
+    while (rain.length < count) rain.push(0);
+    const rainPeak = Math.max(...rain);
+    if (rainPeak > 0) {
+      // 4 mm/h fills the band; a drizzle stays a drizzle instead of being
+      // stretched to the same height as a downpour.
+      const rainScale = Math.max(rainPeak, 4);
+      const heights = rain.map((amount) => (amount / rainScale) * plotH * 0.6);
+      const edge = heights.map((height, index) => `${points[index][0].toFixed(2)},${(axisY - height).toFixed(2)}`).join(" ");
+      if (this._displaySupportsYellow?.()) {
+        parts.push(`<polygon points="${box.x.toFixed(2)},${axisY.toFixed(2)} ${edge} ${(box.x + box.w).toFixed(2)},${axisY.toFixed(2)}"`
+          + ` fill="${YELLOW}" fill-opacity="0.85"></polygon>`);
+      } else {
+        for (let index = 0; box.x + 1 + index * 3 < box.x + box.w; index += 1) {
+          const x = box.x + 1 + index * 3;
+          const position = (x - box.x) / step;
+          const left = Math.min(count - 2, Math.floor(position));
+          const height = heights[left] + (heights[left + 1] - heights[left]) * (position - left);
+          if (height >= 1) parts.push(this._svgHairline(x - 0.5, axisY - height, 1, height));
+        }
+      }
+      parts.push(`<polyline points="${edge}" fill="none" stroke="${BLACK}" stroke-width="1" stroke-linejoin="round"></polyline>`);
+    }
+    // Dotted verticals under each label anchor the time to the curve.
+    placed.forEach(({ px }) => {
+      const x = px.toFixed(2);
+      parts.push(`<line x1="${x}" y1="${chartY.toFixed(2)}" x2="${x}" y2="${axisY.toFixed(2)}" stroke="${BLACK}" stroke-width="1" stroke-dasharray="1 2"></line>`);
+    });
+    parts.push(this._svgHairline(box.x, axisY, box.w, 1));
+    parts.push(`<polyline points="${path}" fill="none" stroke="${ink}" stroke-width="${lineWidth.toFixed(2)}" stroke-linejoin="round" stroke-linecap="round"></polyline>`);
+    // Labels last, each on a white plate so the grid line behind it cannot cut
+    // through the digits.
+    placed.forEach(({ px, py, cx, cy, width, text, fontSize }) => {
+      parts.push(`<rect x="${(cx - width / 2 - 1).toFixed(2)}" y="${(cy - labelBand / 2).toFixed(2)}" width="${(width + 2).toFixed(2)}" height="${labelBand.toFixed(2)}" fill="#ffffff"></rect>`);
+      parts.push(this._svgText(text, cx, cy, fontSize, { minSize: floor }));
+      parts.push(`<circle cx="${px.toFixed(2)}" cy="${py.toFixed(2)}" r="${Math.max(1.5, lineWidth * 0.8).toFixed(2)}" fill="${ink}"></circle>`);
+    });
+    if (captioned) parts.push(this._svgText(chart.caption, box.x, box.y + captionBand * 0.5, captionSize, { anchor: "start", minSize: floor, maxWidth: box.w }));
     return parts.join("");
   },
 
