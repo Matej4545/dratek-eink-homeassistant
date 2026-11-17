@@ -1,7 +1,8 @@
 # The 2.9" BWRY label through the same morning as weather_day.yaml.
 # mini_weather reads only weather.home, so the indoor-sensor events below are "ignored" here -
 # the per-line comments describe the 800x480 screen, which also reads the indoor sensors.
-screen: ../screens/mini_weather.py
+screen: mini_weather
+options: {weather: weather.home}
 state: ../states/demo.yaml
 sdk_type: 46           # 296x128 BWRY (Drátek 2.9")
 duration: 6h

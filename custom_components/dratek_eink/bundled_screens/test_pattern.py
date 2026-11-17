@@ -1,16 +1,14 @@
 """Orientation + colour check for a real panel. Send the PNG once, compare with the preview.
 
-    .venv/Scripts/python devtools/sim.py render devtools/screens/test_pattern.py
-
-writes devtools/out/test_pattern/quantized.png - upload that through the current
-panel's custom-image template. If the physical panel matches the simulator's
-"Panel" view (TOP arrow up, corners where labelled, the four swatches in the
-right colours), the simulator's packing/orientation model holds for your model.
+Select "test_pattern" as the display's screen (or render it with
+devtools/sim.py). If the physical panel matches the simulator's "Panel" view
+(TOP arrow up, corners where labelled, the swatches in the right colours), the
+packing/orientation model holds for your model.
 """
 
 from __future__ import annotations
 
-SDK_TYPE = 46
+TITLE = "Testovací obrazec"
 
 
 def render(ctx):

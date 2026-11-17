@@ -27,7 +27,13 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 # Assistant, so it is a real camera entity instead - inspectable in Developer
 # Tools like any other camera, and read through the same camera.async_get_image
 # API a user's own camera entities already go through.
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.CAMERA, Platform.SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.CAMERA,
+    Platform.SELECT,
+    Platform.SENSOR,
+]
 GATEWAY_MONITOR_INTERVAL = timedelta(seconds=30)
 GATEWAY_DISPLAY_DISCOVERY_INTERVAL_SECONDS = 5 * 60
 PANEL_URL_PATH = "dratek-eink"
@@ -96,7 +102,12 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         # would repaint over the text that was just sent.
         await get_entity_auto_update_manager(hass).async_set_config(address, None)
         # show_image must not later skip a picture because it thinks it is still showing.
-        hass.data.get(DOMAIN, {}).get("show_image_last_sent", {}).pop(str(address).strip().upper(), None)
+        try:
+            from .image_service import forget_last_sent
+
+            forget_last_sent(hass, address)
+        except Exception:  # noqa: BLE001 - never fail a text send over this
+            _LOGGER.debug("Could not clear show_image state for %s", address, exc_info=True)
 
         async def run_transfer(add_log):
             transfer = DratekTransfer(log=add_log, hass=hass)
@@ -180,6 +191,11 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         )
     except Exception:  # noqa: BLE001 - log and keep the rest of the integration running
         _LOGGER.exception("dratek_eink.show_image could not be registered")
+
+    try:
+        _register_screen_services(hass)
+    except Exception:  # noqa: BLE001 - same isolation as show_image above
+        _LOGGER.exception("dratek_eink screen actions could not be registered")
     hass.services.async_register(
         DOMAIN,
         "set_display_automation",
@@ -247,6 +263,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             gateways,
         )
 
+    # Screens rendered by HA itself. Set up before the platforms (the select and
+    # button entities read it) and isolated: a failure here costs the screens,
+    # not transfers, gateways or the panel.
+    try:
+        from homeassistant.helpers.start import async_at_started
+
+        from .screen_runtime import MANAGER_KEY, ScreenManager
+
+        screen_manager = ScreenManager(hass)
+        await screen_manager.async_setup()
+        hass.data[DOMAIN][MANAGER_KEY] = screen_manager
+        entry.async_on_unload(async_at_started(hass, screen_manager.async_start))
+
+        def _stop_screens() -> None:
+            screen_manager.async_stop()
+            hass.data.get(DOMAIN, {}).pop(MANAGER_KEY, None)
+
+        entry.async_on_unload(_stop_screens)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("The dratek_eink screen runtime could not be started")
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     from .automation import get_entity_auto_update_manager
@@ -299,6 +336,76 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_on_stop)
     )
     return True
+
+
+SET_SCREEN_SCHEMA = vol.Schema(
+    {
+        vol.Required("address"): cv.string,
+        vol.Required("screen"): cv.string,
+        vol.Optional("options"): dict,
+        vol.Optional("reset_options", default=False): cv.boolean,
+        vol.Optional("min_refresh_seconds"): vol.All(vol.Coerce(int), vol.Range(min=30, max=86400)),
+    }
+)
+REFRESH_SCREEN_SCHEMA = vol.Schema(
+    {vol.Required("address"): cv.string, vol.Optional("force", default=True): cv.boolean}
+)
+FIND_STOP_SCHEMA = vol.Schema(
+    {vol.Required("query"): cv.string, vol.Optional("limit", default=8): vol.All(vol.Coerce(int), vol.Range(1, 12))}
+)
+
+
+def _register_screen_services(hass: HomeAssistant) -> None:
+    from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+
+    from .screen_runtime import get_screen_manager
+
+    def manager():
+        found = get_screen_manager(hass)
+        if found is None:
+            raise HomeAssistantError("The screen runtime is not running; see the log for why.")
+        return found
+
+    async def handle_set_screen(call: ServiceCall) -> None:
+        try:
+            await manager().async_set_screen(
+                call.data["address"],
+                call.data["screen"],
+                options=call.data.get("options"),
+                reset_options=call.data["reset_options"],
+                min_refresh_seconds=call.data.get("min_refresh_seconds"),
+            )
+        except ValueError as exc:
+            raise ServiceValidationError(str(exc)) from exc
+
+    async def handle_refresh_screen(call: ServiceCall) -> None:
+        try:
+            await manager().async_refresh(call.data["address"], force=call.data["force"])
+        except ValueError as exc:
+            raise ServiceValidationError(str(exc)) from exc
+
+    async def handle_reload_screens(call: ServiceCall):
+        screens = await manager().async_reload_screens()
+        return {"screens": [info.summary() for info in screens.values()]}
+
+    async def handle_find_transit_stop(call: ServiceCall):
+        from .transit import TransitError, async_search_stops
+
+        try:
+            return {"stops": await async_search_stops(hass, call.data["query"], call.data["limit"])}
+        except TransitError as exc:
+            raise HomeAssistantError(str(exc)) from exc
+
+    hass.services.async_register(DOMAIN, "set_screen", handle_set_screen, schema=SET_SCREEN_SCHEMA)
+    hass.services.async_register(DOMAIN, "refresh_screen", handle_refresh_screen, schema=REFRESH_SCREEN_SCHEMA)
+    hass.services.async_register(
+        DOMAIN, "reload_screens", handle_reload_screens, schema=vol.Schema({}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN, "find_transit_stop", handle_find_transit_stop, schema=FIND_STOP_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
 
 
 async def async_migrate_entry(

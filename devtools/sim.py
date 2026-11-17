@@ -1,7 +1,7 @@
 """eInk simulator CLI - no Home Assistant, no hardware.
 
-    python devtools/sim.py serve    devtools/screens/weather.py --state devtools/states/demo.yaml
-    python devtools/sim.py render   devtools/screens/weather.py --state devtools/states/demo.yaml --sdk 299
+    python devtools/sim.py serve    mini_weather --state devtools/states/demo.yaml --option weather=weather.home
+    python devtools/sim.py render   weather --state devtools/states/demo.yaml --sdk 299
     python devtools/sim.py simulate devtools/scenarios/weather_day.yaml
     python devtools/sim.py decode   some_design.png --sdk 299        # any PNG through the real packer
     python devtools/sim.py pull-state --entities weather.home sun.sun --forecast weather.home --out devtools/states/live.yaml
@@ -29,6 +29,14 @@ def _sdk(args) -> int:
     return args.sdk or screen_sdk_type(args.screen)
 
 
+def _options(args) -> dict:
+    out = {}
+    for item in getattr(args, "option", None) or []:
+        key, _, value = item.partition("=")
+        out[key.strip()] = int(value) if value.strip().isdigit() else value
+    return out
+
+
 def _source(args) -> StateSource:
     if getattr(args, "live", False):
         source = LiveSource()
@@ -43,11 +51,12 @@ def cmd_render(args) -> int:
     source = _source(args)
     now = parse_dt(args.now) if args.now else None
     sdk = _sdk(args)
-    frame = render_frame(args.screen, source, sdk, now, framed=args.framed, dither_mode=args.dither)
+    frame = render_frame(args.screen, source, sdk, now, options=_options(args), framed=args.framed,
+                         dither_mode=args.dither)
     if not frame.ok:
         print(frame.error, file=sys.stderr)
         return 1
-    out = Path(args.out or OUT / Path(args.screen).stem)
+    out = Path(args.out or OUT / Path(str(args.screen)).stem)
     out.mkdir(parents=True, exist_ok=True)
     frame.drawn.save(out / "drawn.png")
     frame.quantized.save(out / "quantized.png")
@@ -97,7 +106,8 @@ def cmd_simulate(args) -> int:
 def cmd_serve(args) -> int:
     from eink_sim.server import serve
 
-    serve(Path(args.screen), Path(args.state) if args.state else None, args.live, _sdk(args), args.port, args.framed)
+    serve(args.screen, Path(args.state) if args.state else None, args.live, _sdk(args), args.port, args.framed,
+          _options(args))
     return 0
 
 
@@ -129,6 +139,8 @@ def main() -> int:
         sp.add_argument("--sdk", type=int, default=None,
                         help="panel SDK type (default: the screen's SDK_TYPE, else 46 = 296x128 BWRY)")
         sp.add_argument("--framed", action="store_true", help="wrap in the vendor QuickLZ stream too")
+        sp.add_argument("--option", action="append", metavar="KEY=VALUE",
+                        help="screen option, e.g. --option weather=weather.home (repeatable)")
 
     sp = sub.add_parser("render"); common(sp)
     sp.add_argument("--now"); sp.add_argument("--out"); sp.add_argument("--dither")

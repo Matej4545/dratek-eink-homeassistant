@@ -250,3 +250,96 @@ show_image:
       default: true
       selector:
         boolean:
+
+set_screen:
+  name: Set screen
+  description: >-
+    Choose what a display shows: a screen (a Python file from the integration's bundled screens
+    or /config/dratek_screens) that Home Assistant renders and redraws whenever the entities it
+    reads change. "off" stops it. The same choice is the display's "Obrazovka" select entity.
+  fields:
+    address:
+      name: BLE address
+      description: BLE MAC address of the display.
+      required: true
+      example: "FF:FF:94:20:10:78"
+      selector:
+        text:
+    screen:
+      name: Screen
+      description: Screen id (file name without .py), or "off".
+      required: true
+      example: mini_weather
+      selector:
+        text:
+    options:
+      name: Options
+      description: >-
+        Settings for this screen on this display, merged into the stored ones. Each screen lists
+        its options and defaults; the select entity shows them as attributes.
+      required: false
+      example: '{"weather": "weather.forecast_home"}'
+      selector:
+        object:
+    reset_options:
+      name: Reset options
+      description: Drop this screen's stored options first (back to its defaults).
+      required: false
+      default: false
+      selector:
+        boolean:
+    min_refresh_seconds:
+      name: Minimum refresh gap
+      description: >-
+        Never rewrite the panel more often than this (default 600 s). Each write costs battery
+        on coin-cell labels; changes in between are drawn at the end of the gap, not dropped.
+      required: false
+      selector:
+        number:
+          min: 30
+          max: 86400
+          unit_of_measurement: s
+          mode: box
+
+refresh_screen:
+  name: Refresh screen
+  description: Redraw a display's screen now.
+  fields:
+    address:
+      name: BLE address
+      description: BLE MAC address of the display.
+      required: true
+      example: "FF:FF:94:20:10:78"
+      selector:
+        text:
+    force:
+      name: Force
+      description: Ignore the minimum refresh gap and send even an identical picture.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+reload_screens:
+  name: Reload screens
+  description: Re-read the screen files (after you edit or add one in /config/dratek_screens) and redraw.
+
+find_transit_stop:
+  name: Find transit stop
+  description: Search Czech/Slovak public-transport stops; returns ids to use as a departures screen's stop_id.
+  fields:
+    query:
+      name: Stop name
+      description: Part of the stop's name.
+      required: true
+      example: Letňany
+      selector:
+        text:
+    limit:
+      name: Results
+      required: false
+      default: 8
+      selector:
+        number:
+          min: 1
+          max: 12

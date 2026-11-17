@@ -92,6 +92,19 @@ states:
         accessible: true
         air_conditioned: true
   sensor.hallway_motion_battery: '87'
+  binary_sensor.balcony_door:
+    state: 'on'
+    attributes:
+      friendly_name: Balkonové dveře
+      device_class: door
+  binary_sensor.bedroom_window:
+    state: 'off'
+    attributes:
+      friendly_name: Okno ložnice
+  light.hallway:
+    state: 'off'
+    attributes:
+      friendly_name: Světlo chodba
 forecasts:
   weather.home:
     hourly:
@@ -341,3 +354,141 @@ history:
     - 3.4
   - - '2026-11-16T07:30:00'
     - 3.2
+transit:
+  demo:avia-letnany:
+    stop_name: Avia Letňany
+    stop_id: demo:avia-letnany
+    departures:
+    - line: '201'
+      destination: Nádraží Holešovice
+      departure: 07:31
+      realtime: true
+      platform: B
+      kind: bus
+    - line: '158'
+      destination: Letňany
+      departure: 07:31
+      realtime: false
+      platform: A
+      kind: bus
+    - line: '195'
+      destination: Skalka
+      departure: 07:34
+      realtime: false
+      platform: B
+      kind: bus
+    - line: '158'
+      destination: Letňany
+      departure: 07:37
+      realtime: false
+      platform: A
+      kind: bus
+    - line: '201'
+      destination: Černý Most
+      departure: 07:37
+      realtime: false
+      platform: B
+      kind: bus
+    - line: '195'
+      destination: Skalka
+      departure: 07:37
+      realtime: true
+      platform: A
+      kind: bus
+    - line: '166'
+      destination: Střížkov
+      departure: 07:40
+      realtime: false
+      platform: B
+      kind: bus
+    - line: '201'
+      destination: Nádraží Holešovice
+      departure: 07:40
+      realtime: true
+      platform: A
+      kind: bus
+  demo:palmovka:
+    stop_name: Palmovka
+    stop_id: demo:palmovka
+    departures:
+    - line: '8'
+      destination: Starý Hloubětín
+      departure: 07:33
+      realtime: true
+      kind: tram
+      platform: ''
+    - line: '3'
+      destination: Lehovec
+      departure: 07:34
+      realtime: true
+      kind: tram
+      platform: ''
+    - line: '12'
+      destination: Sídliště Barrandov
+      departure: 07:35
+      realtime: false
+      kind: tram
+      platform: ''
+    - line: '8'
+      destination: Podbaba
+      departure: 07:36
+      realtime: true
+      kind: tram
+      platform: ''
+    - line: '3'
+      destination: Kobylisy
+      departure: 07:38
+      realtime: false
+      kind: tram
+      platform: ''
+    - line: '25'
+      destination: Bílá Hora
+      departure: 07:39
+      realtime: true
+      kind: tram
+      platform: ''
+    - line: '8'
+      destination: Starý Hloubětín
+      departure: 07:41
+      realtime: true
+      kind: tram
+      platform: ''
+    - line: '3'
+      destination: Lehovec
+      departure: 07:44
+      realtime: false
+      kind: tram
+      platform: ''
+    - line: '12'
+      destination: Lehovec
+      departure: 07:46
+      realtime: true
+      kind: tram
+      platform: ''
+    - line: '8'
+      destination: Podbaba
+      departure: 07:47
+      realtime: false
+      kind: tram
+      platform: ''
+    - line: '8'
+      destination: Starý Hloubětín
+      departure: 07:49
+      realtime: false
+      kind: tram
+      platform: ''
+    - line: '3'
+      destination: Lehovec
+      departure: 07:54
+      realtime: false
+      kind: tram
+      platform: ''
+calendars:
+  calendar.family:
+  - summary: Zubař
+    start: '2026-11-16T09:00:00'
+    end: '2026-11-16T10:00:00'
+    location: Vinohrady
+  - summary: Vynést tříděný odpad
+    start: '2026-11-16'
+    end: '2026-11-17'

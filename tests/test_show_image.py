@@ -53,7 +53,25 @@ def _install_homeassistant_stubs() -> None:
     cv.url = vol.Coerce(str)
     cv.entity_id = vol.Coerce(str)
     cv.boolean = vol.Coerce(bool)
+    storage = types.ModuleType("homeassistant.helpers.storage")
+    storage.Store = FakeStore
+    modules["homeassistant.helpers.storage"] = storage
     sys.modules.update(modules)
+
+
+class FakeStore:
+    """homeassistant.helpers.storage.Store with an in-memory "disk" shared by key."""
+
+    disk: dict[str, object] = {}
+
+    def __init__(self, hass, version, key) -> None:
+        self.key = key
+
+    async def async_load(self):
+        return FakeStore.disk.get(self.key)
+
+    def async_delay_save(self, data_func, delay=0) -> None:
+        FakeStore.disk[self.key] = data_func()
 
 
 def _load(name: str):
@@ -257,6 +275,12 @@ class ShowImageServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         global world
         world.__init__()
+        FakeStore.disk.clear()
+        # image_service imports Store lazily; other test modules stub this module
+        # with their own (Store = object), so put ours back for every test.
+        storage = types.ModuleType("homeassistant.helpers.storage")
+        storage.Store = FakeStore
+        sys.modules["homeassistant.helpers.storage"] = storage
         self.hass = FakeHass(ROOT / "tests")
 
     def run_call(self, data: dict, return_response: bool = True):
@@ -284,6 +308,11 @@ class ShowImageServiceTests(unittest.TestCase):
         self.assertEqual(len(world.sent), 1)
         self.assertTrue(self.run_call({"data": _png(), "force": True})["sent"])
         self.assertEqual(len(world.sent), 2)
+
+    def test_the_skip_survives_a_restart(self):
+        self.run_call({"data": _png()})
+        self.hass = FakeHass(ROOT / "tests")  # fresh hass.data, same "disk"
+        self.assertFalse(self.run_call({"data": _png()})["sent"])
 
     def test_another_write_to_the_display_defeats_the_skip(self):
         self.run_call({"data": _png()})
@@ -387,8 +416,8 @@ class RegistrationTests(unittest.TestCase):
         init = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
         self.assertIn("SERVICE_SHOW_IMAGE", init)
         self.assertIn("supports_response=SupportsResponse.OPTIONAL", init)
-        # send_text clears the same key forget_last_sent() uses
-        self.assertIn(f'"{image_service.LAST_SENT_KEY}"', init)
+        # send_text writes the panel without a preview, so it must forget (and persist that)
+        self.assertIn("forget_last_sent(hass, address)", init)
         import yaml
 
         services = yaml.safe_load((COMPONENT / "services.yaml").read_text(encoding="utf-8"))

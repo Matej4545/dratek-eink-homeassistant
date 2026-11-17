@@ -1,7 +1,8 @@
 """Replay a timeline of state changes and show when the display would refresh.
 
 Runs in simulated time (a 24 h scenario takes seconds). The update policy is the
-one proposed for the rewrite (docs/ARCHITECTURE-PROPOSAL.md):
+integration's own ``screen_render.UpdatePolicy`` - the object Home Assistant's
+screen runtime uses:
 
 * redraw when an entity the screen *read* last time changes (debounced),
   and every ``INTERVAL`` seconds if the screen sets one;
@@ -11,12 +12,13 @@ one proposed for the rewrite (docs/ARCHITECTURE-PROPOSAL.md):
 
 Scenario file (YAML)::
 
-    screen: ../screens/weather.py
+    screen: weather            # a bundled screen id, or a path to a .py file
     state: ../states/demo.yaml
+    options: {weather: weather.home}
     sdk_type: 299
-    duration: 6h            # s / m / h suffix, or seconds
-    debounce: 5             # seconds (default 5)
-    min_gap: 120            # seconds between panel writes (default 120)
+    duration: 6h               # s / m / h suffix, or seconds
+    debounce: 5                # seconds (default 5)
+    min_gap: 120               # seconds between panel writes (default 600, as in HA)
     events:
       - at: 10m             # offset from the state file's `now`
         set: {sensor.outside_temperature: 5.1}
@@ -36,8 +38,9 @@ from typing import Any
 
 import yaml
 
-from .pipeline import Frame, changed_box, load_screen, render_frame, screen_sdk_type
-from .state import load_state_file
+from .pipeline import (Frame, changed_box, load_screen, render_frame, resolve_screen_path, screen_render,
+                       screen_sdk_type)
+from .state import StateSource, load_state_file
 
 
 def seconds(value: Any) -> float:
@@ -83,41 +86,38 @@ def run(scenario_path: str | Path, out_dir: str | Path | None = None) -> Result:
     scenario_path = Path(scenario_path).resolve()
     base = scenario_path.parent
     cfg = yaml.safe_load(scenario_path.read_text(encoding="utf-8"))
-    screen_path = (base / cfg["screen"]).resolve()
-    source = load_state_file(base / cfg["state"]) if cfg.get("state") else None
-    if source is None:
-        from .state import StateSource
-
-        source = StateSource()
+    screen_ref = str(cfg["screen"])
+    screen_path = resolve_screen_path((base / screen_ref) if screen_ref.endswith(".py") else screen_ref)
+    source = load_state_file(base / cfg["state"]) if cfg.get("state") else StateSource()
     sdk_type = int(cfg.get("sdk_type") or screen_sdk_type(screen_path))
+    options = dict(cfg.get("options") or {})
     start: datetime = source.now or datetime.now().replace(microsecond=0)
     duration = seconds(cfg.get("duration", "6h"))
-    debounce = seconds(cfg.get("debounce", 5))
-    min_gap = seconds(cfg.get("min_gap", 120))
     out = Path(out_dir) if out_dir else Path(__file__).resolve().parents[1] / "out" / scenario_path.stem
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.png"):
         old.unlink()
 
     screen = load_screen(screen_path)
-    interval = seconds(getattr(screen, "INTERVAL", 0) or 0)
-    events = sorted(
-        ((seconds(e["at"]), e.get("set") or {}) for e in cfg.get("events") or []), key=lambda e: e[0]
+    # The integration's own policy object - the simulator only feeds it a clock.
+    policy = screen_render.UpdatePolicy(
+        debounce=seconds(cfg.get("debounce", 5)),
+        min_gap=seconds(cfg.get("min_gap", 600)),
+        interval=screen.interval,
     )
+    events = sorted(((seconds(e["at"]), e.get("set") or {}) for e in cfg.get("events") or []), key=lambda e: e[0])
 
     result = Result()
     watched: set[str] = set()
-    last_sent_t: float | None = None
     last_digest = ""
     last_image = None
-    render_due: float | None = 0.0
-    reason = "startup"
-    next_tick = interval if interval else None
     event_i = 0
     frame_no = 0
+    policy.start(0.0)
 
     while True:
-        candidates = [c for c in (render_due, next_tick, events[event_i][0] if event_i < len(events) else None) if c is not None]
+        candidates = [c for c in (policy.next_wakeup(), events[event_i][0] if event_i < len(events) else None)
+                      if c is not None]
         if not candidates:
             break
         t = min(candidates)
@@ -129,40 +129,43 @@ def run(scenario_path: str | Path, out_dir: str | Path | None = None) -> Result:
                 source.set(entity_id, value)
                 if entity_id in watched:
                     result.log.append(LogEntry(t, "change", f"{entity_id} → {_short(value)}"))
-                    if render_due is None:
-                        render_due, reason = t + debounce, f"state change: {entity_id}"
+                    policy.on_change(t, entity_id)
                 else:
                     result.log.append(LogEntry(t, "ignored", f"{entity_id} → {_short(value)} (screen does not read it)"))
             event_i += 1
 
-        if next_tick is not None and next_tick == t:
-            if render_due is None:
-                render_due, reason = t, "interval"
-            next_tick += interval
-
-        if render_due is not None and render_due <= t:
-            if last_sent_t is not None and t < last_sent_t + min_gap:
-                render_due = last_sent_t + min_gap
-                result.log.append(LogEntry(t, "deferred", f"{reason}; panel refreshed {t - last_sent_t:.0f}s ago, waiting until +{_fmt(render_due)}"))
-                continue
-            frame: Frame = render_frame(screen, source, sdk_type, start + timedelta(seconds=t))
-            result.renders += 1
-            render_due = None
-            if not frame.ok:
-                result.log.append(LogEntry(t, "error", frame.error.strip().splitlines()[-1]))
-                (out / f"error_{frame_no:04d}.txt").write_text(frame.error, encoding="utf-8")
-                continue
-            watched = frame.accessed
-            if frame.digest == last_digest:
-                result.log.append(LogEntry(t, "unchanged", f"{reason}; identical bytes, no write"))
-                continue
-            frame_no += 1
-            name = f"{frame_no:04d}_{_fmt(t).replace(':', '')}.png"
-            frame.panel_image.save(out / name)
-            box = changed_box(last_image, frame.panel_image)
-            result.log.append(LogEntry(t, "sent", reason, name, box, len(frame.wire)))
-            result.sends += 1
-            last_sent_t, last_digest, last_image = t, frame.digest, frame.panel_image
+        reason = policy.reason
+        decision = policy.decide(t)
+        if decision == "defer":
+            since = t - (policy.last_send_at or 0)
+            result.log.append(LogEntry(t, "deferred", f"{policy.reason}; panel refreshed {since:.0f}s ago, "
+                                                      f"waiting until +{_fmt(policy.due_at or t)}"))
+            continue
+        if decision != "render":
+            continue
+        reason = policy.reason or reason
+        now = start + timedelta(seconds=t)
+        source.now = now  # departures count down from the simulated clock
+        frame: Frame = render_frame(screen, source, sdk_type, now, options=options)
+        result.renders += 1
+        if not frame.ok:
+            policy.done(t, sent=False)
+            result.log.append(LogEntry(t, "error", frame.error.strip().splitlines()[-1]))
+            (out / f"error_{frame_no:04d}.txt").write_text(frame.error, encoding="utf-8")
+            continue
+        watched = frame.accessed
+        if frame.digest == last_digest:
+            policy.done(t, sent=False)
+            result.log.append(LogEntry(t, "unchanged", f"{reason}; identical bytes, no write"))
+            continue
+        policy.done(t, sent=True)
+        frame_no += 1
+        name = f"{frame_no:04d}_{_fmt(t).replace(':', '')}.png"
+        frame.panel_image.save(out / name)
+        box = changed_box(last_image, frame.panel_image)
+        result.log.append(LogEntry(t, "sent", reason, name, box, len(frame.wire)))
+        result.sends += 1
+        last_digest, last_image = frame.digest, frame.panel_image
 
     _write_report(out, cfg, result, start, sdk_type, screen_path, watched)
     return result
@@ -205,6 +208,6 @@ small{{color:#777}}
 </style>
 <h1>{html.escape(screen.name)} on SDK type {sdk_type}</h1>
 <p>Start {start} · renders: {result.renders} · panel writes: {result.sends} · {summary}</p>
-<p>Debounce {cfg.get('debounce', 5)} s · min gap {cfg.get('min_gap', 120)} s · watched entities: {html.escape(', '.join(sorted(watched)) or '—')}</p>
+<p>Debounce {cfg.get('debounce', 5)} s · min gap {cfg.get('min_gap', 600)} s · watched entities: {html.escape(', '.join(sorted(watched)) or '—')}</p>
 <table>{''.join(rows)}</table>"""
     (out / "index.html").write_text(page, encoding="utf-8")

@@ -40,5 +40,4 @@ render = load("render")
 quicklz = load("quicklz")
 const = load("const")
 
-FONT_DIR = COMPONENT / "frontend" / "fonts"
-MDI_PATHS_JS = REPO / "tests" / "vendor" / "mdi" / "paths.js"
+BUNDLED_SCREENS = COMPONENT / "bundled_screens"

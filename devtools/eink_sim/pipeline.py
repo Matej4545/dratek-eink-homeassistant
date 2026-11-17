@@ -1,66 +1,51 @@
-"""Screen file -> drawn image -> panel pigments -> wire bytes -> what the panel prints.
+"""Screen file -> panel image, via the integration's own code.
 
-A *screen* is a plain Python file::
-
-    ORIENTATION = "landscape"   # optional: landscape | portrait
-    DITHER = "ordered"          # optional: ordered | floyd | none
-    INTERVAL = 900              # optional: also redraw every N seconds (clocks, "x min ago")
-    ENTITIES = [...]            # optional: extra triggers; entities read in render() are tracked anyway
-
-    def render(ctx):
-        img, draw = ctx.canvas()
-        draw.text((10, 10), f"{ctx.num('sensor.outside_temperature'):.1f} °C", font=ctx.font(48, 700), fill=ctx.BLACK)
-        return img               # a PIL image of ctx.size - or an SVG string
+Rendering is ``screen_render.render_screen`` from custom_components/dratek_eink -
+the exact function Home Assistant runs - followed by the real packer and an
+independent decode of its bytes (panel.py) to show what the panel would print.
 """
 
 from __future__ import annotations
 
 import hashlib
-import importlib.util
-import sys
-import time
-import traceback
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from types import ModuleType
+from typing import Any
 
 import numpy as np
 from PIL import Image
 
-from . import dither, panel
-from .context import RenderContext
+from . import panel
+from .component import BUNDLED_SCREENS, load
 from .state import StateSource
 
-
-def load_screen(path: str | Path) -> ModuleType:
-    """Import a screen file fresh every call (so edits are picked up live)."""
-    path = Path(path).resolve()
-    # Forget helper modules imported from the screen's folder, too.
-    for name, module in list(sys.modules.items()):
-        file = getattr(module, "__file__", None) or ""
-        if file and Path(file).resolve().parent == path.parent:
-            del sys.modules[name]
-    if str(path.parent) not in sys.path:
-        sys.path.insert(0, str(path.parent))
-    spec = importlib.util.spec_from_file_location(f"eink_screen_{path.stem}", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load screen {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    if not callable(getattr(module, "render", None)):
-        raise AttributeError(f"{path.name} has no render(ctx) function")
-    return module
-
-
+screen_render = load("screen_render")
 DEFAULT_SDK_TYPE = 46  # EPA LCD 296x128 BWRY - the Drátek 2.9" 4-colour label
+DEVTOOLS = Path(__file__).resolve().parents[1]
 
 
-def screen_sdk_type(screen: ModuleType | str | Path) -> int:
+def resolve_screen_path(screen: str | Path) -> Path:
+    """A path, or the id of a bundled screen ("mini_weather")."""
+    path = Path(screen)
+    if path.suffix == ".py" or path.exists():
+        return path.resolve()
+    return (BUNDLED_SCREENS / f"{screen}.py").resolve()
+
+
+def load_screen(screen: str | Path):
+    """Read a screen fresh (so edits are picked up). Raises if it fails to load."""
+    info = screen_render.read_screen(resolve_screen_path(screen))
+    if info.error:
+        raise RuntimeError(info.error)
+    return info
+
+
+def screen_sdk_type(screen: Any) -> int:
     """The panel a screen was designed for (its SDK_TYPE), else the default."""
     try:
-        module = screen if isinstance(screen, ModuleType) else load_screen(screen)
-        return int(getattr(module, "SDK_TYPE", DEFAULT_SDK_TYPE))
+        info = screen if hasattr(screen, "module") else load_screen(screen)
+        return int(info.sdk_type or DEFAULT_SDK_TYPE)
     except Exception:  # a broken screen still gets a panel; the error shows on render
         return DEFAULT_SDK_TYPE
 
@@ -84,54 +69,50 @@ class Frame:
 
 
 def render_frame(
-    screen: ModuleType | str | Path,
+    screen: Any,
     source: StateSource,
     sdk_type: int,
     now: datetime | None = None,
     *,
+    options: dict[str, Any] | None = None,
     transform: str | None = None,
     framed: bool = False,
     dither_mode: str | None = None,
 ) -> Frame:
     frame = Frame()
     try:
-        module = screen if isinstance(screen, ModuleType) else load_screen(screen)
-        spec = panel.panel_spec(sdk_type)
-        orientation = getattr(module, "ORIENTATION", "landscape")
-        size = spec.canvas_size(orientation)
-        ctx = RenderContext(spec, size, source, now or source.now or datetime.now().replace(microsecond=0))
-        started = time.perf_counter()
-        result = module.render(ctx)
-        if isinstance(result, str):
-            layer = ctx.svg(result)
-            result = Image.new("RGB", size, panel.WHITE)
-            result.paste(layer, (0, 0), layer)
-        if not isinstance(result, Image.Image):
-            raise TypeError(f"render() returned {type(result).__name__}, expected a PIL image or SVG string")
-        if result.size != size:
-            raise ValueError(f"render() returned {result.size[0]}x{result.size[1]}, panel canvas is {size[0]}x{size[1]}")
-        frame.render_ms = (time.perf_counter() - started) * 1000
-        frame.accessed = set(ctx.accessed) | set(getattr(module, "ENTITIES", []) or [])
-        frame.drawn = result.convert("RGB")
-
-        mode = dither_mode or getattr(module, "DITHER", "ordered")
-        # Four-colour packing can carry yellow even where the model name says BWR.
-        frame.quantized = dither.quantize(frame.drawn, spec.colors, mode)
-
-        frame.payload, frame.wire = panel.encode(sdk_type, frame.quantized, orientation, transform, framed)
-        decoded = panel.decode(sdk_type, frame.wire, size, orientation, transform, framed)
-        frame.panel_image = decoded.image
-        frame.warnings += decoded.warnings
-        frame.digest = hashlib.sha1(frame.payload).hexdigest()[:12]
-
-        mismatch = int((np.asarray(decoded.image) != np.asarray(frame.quantized)).any(-1).sum())
-        if mismatch and not decoded.warnings:
-            frame.warnings.append(
-                f"{mismatch} pixels differ between the quantized image and what the packer produced "
-                "(the integration's classifier disagrees with the palette)."
-            )
-    except Exception:  # surfaced in the UI/report, never fatal for the server
-        frame.error = traceback.format_exc()
+        info = screen if hasattr(screen, "module") else load_screen(screen)
+    except Exception as exc:
+        frame.error = str(exc)
+        return frame
+    unknown = sorted(set(options or {}) - set(info.options))
+    if unknown:
+        frame.warnings.append(f"Unknown option(s) {', '.join(unknown)}; {info.id} accepts: {', '.join(info.options) or 'none'}")
+    result = screen_render.render_screen(
+        info.module, source, sdk_type, now or source.now or datetime.now().replace(microsecond=0),
+        options=screen_render.resolve_options(info, options),
+        font_dirs=(DEVTOOLS / "fonts",), icon_dirs=(DEVTOOLS / "icons",), dither_mode=dither_mode,
+    )
+    frame.accessed, frame.render_ms = result.accessed, result.render_ms
+    if not result.ok:
+        frame.error = result.error
+        return frame
+    frame.drawn, frame.quantized = result.drawn, result.image
+    try:
+        frame.payload, frame.wire = panel.encode(sdk_type, frame.quantized, result.orientation, transform, framed)
+        decoded = panel.decode(sdk_type, frame.wire, frame.quantized.size, result.orientation, transform, framed)
+    except Exception as exc:
+        frame.error = f"Packing failed: {exc}"
+        return frame
+    frame.panel_image = decoded.image
+    frame.warnings += decoded.warnings
+    frame.digest = hashlib.sha1(frame.payload).hexdigest()[:12]
+    mismatch = int((np.asarray(decoded.image) != np.asarray(frame.quantized)).any(-1).sum())
+    if mismatch and not decoded.warnings:
+        frame.warnings.append(
+            f"{mismatch} pixels differ between the quantized image and what the packer produced "
+            "(the integration's classifier disagrees with the palette)."
+        )
     return frame
 
 

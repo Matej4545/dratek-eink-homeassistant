@@ -100,21 +100,71 @@ def test_wrong_canvas_size_is_an_error_not_a_silent_resize(tmp_path):
     assert "panel canvas is 800x480" in frame.error
 
 
+DEMO_OPTIONS = {
+    "weather": {"weather": "weather.home", "indoor_temperature": "sensor.indoor_temperature"},
+    "mini_weather": {"weather": "weather.home"},
+    "departures": {"stop_id": "demo:avia-letnany"},
+    "mini_departures": {"stop_id": "demo:avia-letnany"},
+    "test_pattern": {},
+    "mini_sensors": {"sensor_1": "sensor.indoor_temperature", "sensor_2": "sensor.indoor_humidity"},
+    "door": {"stop_id": "demo:palmovka", "destinations": "Lehovec, Starý Hloubětín", "min_minutes": 4,
+             "weather": "weather.home", "alerts": "binary_sensor.balcony_door"},
+    "going_out": {"weather": "weather.home", "calendar": "calendar.family",
+                  "alerts": "binary_sensor.bedroom_window"},
+}
+
+
 @pytest.mark.parametrize(
     "name,sdk",
-    [("weather", 299), ("departures", 299), ("mini_weather", 46), ("mini_departures", 46), ("test_pattern", 46)],
+    [("weather", 299), ("departures", 299), ("mini_weather", 46), ("mini_departures", 46), ("test_pattern", 46),
+     ("mini_sensors", 46), ("door", 46), ("going_out", 46)],
 )
-def test_example_screens_render_on_the_panel_they_declare(name, sdk):
-    path = DEVTOOLS / "screens" / f"{name}.py"
-    assert screen_sdk_type(path) == sdk
-    frame = render_frame(path, load_state_file(DEVTOOLS / "states" / "demo.yaml"), sdk)
+def test_bundled_screens_render_on_the_panel_they_declare(name, sdk):
+    assert screen_sdk_type(name) == sdk  # test_pattern has no SDK_TYPE: the default, 46
+    frame = render_frame(name, load_state_file(DEVTOOLS / "states" / "demo.yaml"), sdk, options=DEMO_OPTIONS[name])
     assert frame.ok, frame.error
     assert frame.warnings == []
 
 
+def test_departures_come_from_the_transit_fixture():
+    frame = render_frame("mini_departures", load_state_file(DEVTOOLS / "states" / "demo.yaml"), 46,
+                         options={"stop_id": "demo:avia-letnany"})
+    blank = render_frame("mini_departures", load_state_file(DEVTOOLS / "states" / "demo.yaml"), 46,
+                         options={"stop_id": "demo:unknown"})
+    assert frame.ok and blank.ok
+    assert frame.digest != blank.digest
+
+
+def test_rain_falls_back_to_the_amount_when_probability_is_missing():
+    """Some weather integrations only give precipitation (mm), like met.no."""
+    with_probability = load_state_file(DEVTOOLS / "states" / "demo.yaml")
+    amounts_only = load_state_file(DEVTOOLS / "states" / "demo.yaml")
+    for hour in amounts_only.forecasts["weather.home"]["hourly"]:
+        hour.pop("precipitation_probability", None)
+    dry = load_state_file(DEVTOOLS / "states" / "demo.yaml")
+    for hour in dry.forecasts["weather.home"]["hourly"]:
+        hour.pop("precipitation_probability", None)
+        hour["precipitation"] = 0
+    frames = [render_frame("mini_weather", src, 46, options={"weather": "weather.home"})
+              for src in (with_probability, amounts_only, dry)]
+    yellow = [int((np.asarray(f.panel_image) == panel.YELLOW).all(-1).sum()) for f in frames]
+    assert yellow[0] > 0 and yellow[1] > 0 and yellow[2] == 0
+
+
+def test_unknown_options_are_reported():
+    frame = render_frame("mini_weather", StateSource(), 46, options={"nope": 1})
+    assert any("nope" in w for w in frame.warnings)
+
+
+def test_simulator_uses_the_integrations_update_policy():
+    from eink_sim import simulate
+
+    assert simulate.screen_render.UpdatePolicy.__module__.endswith("screen_render")
+
+
 def test_bwry_label_uses_all_four_pigments():
     """The 2.9" BWRY test pattern must reach the wire with yellow and red intact."""
-    frame = render_frame(DEVTOOLS / "screens" / "test_pattern.py", StateSource(), 46)
+    frame = render_frame("test_pattern", StateSource(), 46)
     colours = {tuple(c) for c in np.asarray(frame.panel_image).reshape(-1, 3)}
     assert colours == {panel.BLACK, panel.WHITE, panel.RED, panel.YELLOW}
     assert len(frame.wire) == 296 * 128 // 4  # 2 bits per pixel
