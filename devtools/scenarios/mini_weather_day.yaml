@@ -1,0 +1,29 @@
+# The 2.9" BWRY label through the same morning as weather_day.yaml.
+# mini_weather reads only weather.home, so the indoor-sensor events below are "ignored" here -
+# the per-line comments describe the 800x480 screen, which also reads the indoor sensors.
+screen: ../screens/mini_weather.py
+state: ../states/demo.yaml
+sdk_type: 46           # 296x128 BWRY (Drátek 2.9")
+duration: 6h
+debounce: 5            # coalesce bursts of changes arriving within 5 s
+min_gap: 300           # never refresh the panel more often than every 5 min
+
+events:
+  - at: 2m
+    set: {sensor.outdoor_temperature: 4.4}          # not read by the screen -> ignored
+  - at: 10m
+    set: {sensor.indoor_temperature: 21.7}
+  - at: 10m3s
+    set: {sensor.indoor_humidity: 45}               # same burst -> one render
+  - at: 12m
+    set: {sensor.indoor_temperature: 21.8}          # inside min_gap -> deferred
+  - at: 40m
+    set: {weather.home: {attributes: {temperature: 4.9, apparent_temperature: 2.4}}}
+  - at: 41m
+    set: {weather.home: {attributes: {friendly_name: Praha}}}   # value unchanged -> identical bytes, no write
+  - at: 1h30m
+    set: {sensor.indoor_temperature: 21.84}         # rounds to the same "21,8" -> no write
+  - at: 2h
+    set: {weather.home: {state: rainy, attributes: {temperature: 5.6, apparent_temperature: 3.1}}}
+  - at: 4h
+    set: {sun.sun: {state: above_horizon}}          # screen reads sun.sun attributes, state change alone draws nothing new

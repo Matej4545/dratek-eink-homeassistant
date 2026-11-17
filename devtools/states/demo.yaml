@@ -1,0 +1,343 @@
+# Demo fixture for the eInk simulator. Edit while `sim.py serve` runs and the preview updates.
+now: '2026-11-16T07:30:00'
+states:
+  weather.home:
+    state: partlycloudy
+    attributes:
+      friendly_name: Praha
+      temperature: 4.2
+      apparent_temperature: 1.8
+      humidity: 81
+      pressure: 1016
+      wind_speed: 14.4
+      wind_bearing: 240
+      uv_index: 0.4
+      visibility: 10
+  sun.sun:
+    state: below_horizon
+    attributes:
+      next_rising: '2026-11-16T07:11:00'
+      next_setting: '2026-11-16T16:15:00'
+  sensor.indoor_temperature:
+    state: '21.6'
+    attributes:
+      unit_of_measurement: °C
+  sensor.indoor_humidity:
+    state: '44'
+    attributes:
+      unit_of_measurement: '%'
+  sensor.outdoor_temperature:
+    state: '4.2'
+    attributes:
+      unit_of_measurement: °C
+  sensor.pid_avia_letnany:
+    state: '8'
+    attributes:
+      friendly_name: Avia Letňany
+      departures:
+      - line: '201'
+        destination: Nádraží Holešovice
+        scheduled: 07:29
+        expected: 07:31
+        delay_min: 2
+        accessible: true
+        air_conditioned: true
+      - line: '158'
+        destination: Letňany
+        scheduled: 07:31
+        expected: 07:31
+        delay_min: 0
+        accessible: true
+        air_conditioned: true
+      - line: '195'
+        destination: Skalka
+        scheduled: 07:34
+        expected: 07:34
+        delay_min: 0
+        accessible: true
+        air_conditioned: true
+      - line: '158'
+        destination: Letňany
+        scheduled: 07:37
+        expected: 07:37
+        delay_min: 0
+        accessible: true
+        air_conditioned: true
+      - line: '201'
+        destination: Černý Most
+        scheduled: 07:37
+        expected: 07:37
+        delay_min: 0
+        accessible: true
+        air_conditioned: true
+      - line: '195'
+        destination: Skalka
+        scheduled: 07:36
+        expected: 07:37
+        delay_min: 1
+        accessible: true
+        air_conditioned: true
+      - line: '166'
+        destination: Střížkov
+        scheduled: 07:40
+        expected: 07:40
+        delay_min: 0
+        accessible: true
+        air_conditioned: false
+      - line: '201'
+        destination: Nádraží Holešovice
+        scheduled: 07:39
+        expected: 07:40
+        delay_min: 1
+        accessible: true
+        air_conditioned: true
+  sensor.hallway_motion_battery: '87'
+forecasts:
+  weather.home:
+    hourly:
+    - datetime: '2026-11-16T08:00:00'
+      condition: cloudy
+      temperature: 3.0
+      precipitation_probability: 5
+      precipitation: 0
+    - datetime: '2026-11-16T09:00:00'
+      condition: cloudy
+      temperature: 4.0
+      precipitation_probability: 5
+      precipitation: 0
+    - datetime: '2026-11-16T10:00:00'
+      condition: partlycloudy
+      temperature: 5.0
+      precipitation_probability: 0
+      precipitation: 0
+    - datetime: '2026-11-16T11:00:00'
+      condition: partlycloudy
+      temperature: 6.0
+      precipitation_probability: 0
+      precipitation: 0
+    - datetime: '2026-11-16T12:00:00'
+      condition: sunny
+      temperature: 6.8
+      precipitation_probability: 0
+      precipitation: 0
+    - datetime: '2026-11-16T13:00:00'
+      condition: sunny
+      temperature: 7.5
+      precipitation_probability: 0
+      precipitation: 0
+    - datetime: '2026-11-16T14:00:00'
+      condition: partlycloudy
+      temperature: 7.9
+      precipitation_probability: 10
+      precipitation: 0
+    - datetime: '2026-11-16T15:00:00'
+      condition: cloudy
+      temperature: 8.0
+      precipitation_probability: 30
+      precipitation: 0
+    - datetime: '2026-11-16T16:00:00'
+      condition: rainy
+      temperature: 7.9
+      precipitation_probability: 70
+      precipitation: 1.8
+    - datetime: '2026-11-16T17:00:00'
+      condition: rainy
+      temperature: 7.5
+      precipitation_probability: 85
+      precipitation: 2.1
+    - datetime: '2026-11-16T18:00:00'
+      condition: pouring
+      temperature: 6.8
+      precipitation_probability: 95
+      precipitation: 2.4
+    - datetime: '2026-11-16T19:00:00'
+      condition: rainy
+      temperature: 6.0
+      precipitation_probability: 80
+      precipitation: 2.0
+    - datetime: '2026-11-16T20:00:00'
+      condition: cloudy
+      temperature: 5.0
+      precipitation_probability: 40
+      precipitation: 0
+    - datetime: '2026-11-16T21:00:00'
+      condition: cloudy
+      temperature: 4.0
+      precipitation_probability: 20
+      precipitation: 0
+    - datetime: '2026-11-16T22:00:00'
+      condition: cloudy
+      temperature: 4.2
+      precipitation_probability: 10
+      precipitation: 0
+    - datetime: '2026-11-16T23:00:00'
+      condition: partlycloudy
+      temperature: 3.2
+      precipitation_probability: 5
+      precipitation: 0
+    - datetime: '2026-11-17T00:00:00'
+      condition: clear-night
+      temperature: 2.4
+      precipitation_probability: 0
+      precipitation: 0
+    - datetime: '2026-11-17T01:00:00'
+      condition: clear-night
+      temperature: 1.7
+      precipitation_probability: 0
+      precipitation: 0
+    - datetime: '2026-11-17T02:00:00'
+      condition: partlycloudy
+      temperature: 1.3
+      precipitation_probability: 10
+      precipitation: 0
+    - datetime: '2026-11-17T03:00:00'
+      condition: cloudy
+      temperature: 0.0
+      precipitation_probability: 25
+      precipitation: 0
+    - datetime: '2026-11-17T04:00:00'
+      condition: cloudy
+      temperature: 0.1
+      precipitation_probability: 40
+      precipitation: 0
+    - datetime: '2026-11-17T05:00:00'
+      condition: rainy
+      temperature: 0.5
+      precipitation_probability: 65
+      precipitation: 1.6
+    - datetime: '2026-11-17T06:00:00'
+      condition: rainy
+      temperature: 1.2
+      precipitation_probability: 70
+      precipitation: 1.8
+    - datetime: '2026-11-17T07:00:00'
+      condition: cloudy
+      temperature: 2.0
+      precipitation_probability: 45
+      precipitation: 0
+    daily:
+    - datetime: '2026-11-17T00:00:00'
+      condition: rainy
+      temperature: 9
+      templow: 3
+      precipitation_probability: 60
+    - datetime: '2026-11-18T00:00:00'
+      condition: partlycloudy
+      temperature: 11
+      templow: 4
+      precipitation_probability: 20
+    - datetime: '2026-11-19T00:00:00'
+      condition: sunny
+      temperature: 12
+      templow: 2
+      precipitation_probability: 0
+    - datetime: '2026-11-20T00:00:00'
+      condition: cloudy
+      temperature: 8
+      templow: 5
+      precipitation_probability: 30
+    - datetime: '2026-11-21T00:00:00'
+      condition: snowy-rainy
+      temperature: 4
+      templow: -1
+      precipitation_probability: 80
+history:
+  sensor.outdoor_temperature:
+  - - '2026-11-15T07:30:00'
+    - 3.0
+  - - '2026-11-15T08:00:00'
+    - 3.2
+  - - '2026-11-15T08:30:00'
+    - 3.4
+  - - '2026-11-15T09:00:00'
+    - 3.6
+  - - '2026-11-15T09:30:00'
+    - 3.8
+  - - '2026-11-15T10:00:00'
+    - 3.9
+  - - '2026-11-15T10:30:00'
+    - 4.1
+  - - '2026-11-15T11:00:00'
+    - 4.1
+  - - '2026-11-15T11:30:00'
+    - 4.2
+  - - '2026-11-15T12:00:00'
+    - 4.2
+  - - '2026-11-15T12:30:00'
+    - 4.2
+  - - '2026-11-15T13:00:00'
+    - 4.1
+  - - '2026-11-15T13:30:00'
+    - 4.0
+  - - '2026-11-15T14:00:00'
+    - 3.9
+  - - '2026-11-15T14:30:00'
+    - 3.7
+  - - '2026-11-15T15:00:00'
+    - 3.5
+  - - '2026-11-15T15:30:00'
+    - 3.3
+  - - '2026-11-15T16:00:00'
+    - 3.1
+  - - '2026-11-15T16:30:00'
+    - 2.9
+  - - '2026-11-15T17:00:00'
+    - 2.7
+  - - '2026-11-15T17:30:00'
+    - 2.6
+  - - '2026-11-15T18:00:00'
+    - 2.4
+  - - '2026-11-15T18:30:00'
+    - 2.3
+  - - '2026-11-15T19:00:00'
+    - 2.2
+  - - '2026-11-15T19:30:00'
+    - 2.2
+  - - '2026-11-15T20:00:00'
+    - 2.2
+  - - '2026-11-15T20:30:00'
+    - 2.2
+  - - '2026-11-15T21:00:00'
+    - 2.3
+  - - '2026-11-15T21:30:00'
+    - 2.4
+  - - '2026-11-15T22:00:00'
+    - 2.6
+  - - '2026-11-15T22:30:00'
+    - 2.8
+  - - '2026-11-15T23:00:00'
+    - 2.9
+  - - '2026-11-15T23:30:00'
+    - 3.1
+  - - '2026-11-16T00:00:00'
+    - 3.3
+  - - '2026-11-16T00:30:00'
+    - 3.5
+  - - '2026-11-16T01:00:00'
+    - 3.7
+  - - '2026-11-16T01:30:00'
+    - 3.9
+  - - '2026-11-16T02:00:00'
+    - 4.0
+  - - '2026-11-16T02:30:00'
+    - 4.1
+  - - '2026-11-16T03:00:00'
+    - 4.2
+  - - '2026-11-16T03:30:00'
+    - 4.2
+  - - '2026-11-16T04:00:00'
+    - 4.2
+  - - '2026-11-16T04:30:00'
+    - 4.1
+  - - '2026-11-16T05:00:00'
+    - 4.0
+  - - '2026-11-16T05:30:00'
+    - 3.9
+  - - '2026-11-16T06:00:00'
+    - 3.8
+  - - '2026-11-16T06:30:00'
+    - 3.6
+  - - '2026-11-16T07:00:00'
+    - 3.4
+  - - '2026-11-16T07:30:00'
+    - 3.2

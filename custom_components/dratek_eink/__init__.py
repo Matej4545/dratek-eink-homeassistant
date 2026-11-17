@@ -11,7 +11,7 @@ from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP, Platform
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -95,6 +95,8 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         # drop the display's scheduled entity refresh, otherwise the next tick
         # would repaint over the text that was just sent.
         await get_entity_auto_update_manager(hass).async_set_config(address, None)
+        # show_image must not later skip a picture because it thinks it is still showing.
+        hass.data.get(DOMAIN, {}).get("show_image_last_sent", {}).pop(str(address).strip().upper(), None)
 
         async def run_transfer(add_log):
             transfer = DratekTransfer(log=add_log, hass=hass)
@@ -156,6 +158,28 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             )
 
     hass.services.async_register(DOMAIN, "send_text", handle_send_text, schema=SEND_TEXT_SCHEMA)
+
+    # Imported here and guarded: a problem in the new service must cost only the
+    # service, never the whole integration (transfers, gateways, the panel).
+    try:
+        from .image_service import (
+            SERVICE_SHOW_IMAGE,
+            SHOW_IMAGE_SCHEMA,
+            async_handle_show_image,
+        )
+
+        async def handle_show_image(call: ServiceCall):
+            return await async_handle_show_image(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SHOW_IMAGE,
+            handle_show_image,
+            schema=SHOW_IMAGE_SCHEMA,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+    except Exception:  # noqa: BLE001 - log and keep the rest of the integration running
+        _LOGGER.exception("dratek_eink.show_image could not be registered")
     hass.services.async_register(
         DOMAIN,
         "set_display_automation",

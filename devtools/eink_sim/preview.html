@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>eInk Preview</title>
+<style>
+  :root { --bg:#ecebe6; --card:#fff; --ink:#1d1d1b; --muted:#6b6b66; --line:#d6d4cc; --warn:#9a5b00; --err:#a3150c; --paper:#f2f1ea; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:center; padding:12px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:1; }
+  header h1 { font-size:15px; margin:0 8px 0 0; }
+  label { color:var(--muted); display:inline-flex; gap:6px; align-items:center; }
+  select, button { font:inherit; padding:4px 8px; border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--ink); }
+  button[aria-pressed="true"] { background:var(--ink); color:#fff; border-color:var(--ink); }
+  main { padding:16px; display:grid; gap:16px; }
+  .views { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+  figure { margin:0; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px; max-width:100%; overflow:auto; }
+  figcaption { color:var(--muted); font-size:12px; margin-bottom:6px; }
+  figure img { display:block; image-rendering:pixelated; background:#fff; }
+  .paper figure.panel img { filter: sepia(.08) contrast(.92) brightness(.97); background:var(--paper); }
+  #info { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; color:var(--muted); }
+  #info b { color:var(--ink); font-weight:600; }
+  pre { white-space:pre-wrap; margin:0; font:12px/1.45 ui-monospace,Consolas,monospace; }
+  .error { color:var(--err); background:#fff3f1; border:1px solid #efc2bc; border-radius:10px; padding:12px; }
+  .warn { color:var(--warn); }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">eInk preview</h1>
+  <label>Panel <select id="sdk"></select></label>
+  <label>Dither
+    <select id="dither">
+      <option value="">screen default</option><option value="ordered">ordered</option>
+      <option value="floyd">floyd-steinberg</option><option value="none">none</option>
+    </select>
+  </label>
+  <label>Zoom
+    <select id="zoom"><option value="1">1×</option><option value="2" selected>2×</option><option value="3">3×</option></select>
+  </label>
+  <span role="group" aria-label="Views">
+    <button data-view="drawn" aria-pressed="false">Drawn</button>
+    <button data-view="quantized" aria-pressed="false">Quantized</button>
+    <button data-view="panel" aria-pressed="true">Panel</button>
+  </span>
+  <label><input type="checkbox" id="paper"> paper tint</label>
+</header>
+<main>
+  <div id="error" class="error hidden"><pre id="errtext"></pre></div>
+  <div class="views">
+    <figure class="drawn hidden"><figcaption>Drawn: what <code>render()</code> returned</figcaption><img id="img-drawn" alt="Drawn image"></figure>
+    <figure class="quantized hidden"><figcaption>Quantized to the panel's pigments</figcaption><img id="img-quantized" alt="Quantized image"></figure>
+    <figure class="panel"><figcaption>Panel: decoded back from the bytes the integration would send</figcaption><img id="img-panel" alt="Simulated panel"></figure>
+  </div>
+  <div id="info"></div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+let version = -1, typesLoaded = false;
+const store = { get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+
+function applyViews() {
+  const on = JSON.parse(store.get("views", '["panel"]'));
+  document.querySelectorAll("button[data-view]").forEach((b) => {
+    const active = on.includes(b.dataset.view);
+    b.setAttribute("aria-pressed", active);
+    document.querySelector(`figure.${b.dataset.view}`).classList.toggle("hidden", !active);
+  });
+}
+document.querySelectorAll("button[data-view]").forEach((b) => b.addEventListener("click", () => {
+  let on = JSON.parse(store.get("views", '["panel"]'));
+  on = on.includes(b.dataset.view) ? on.filter((v) => v !== b.dataset.view) : [...on, b.dataset.view];
+  store.set("views", JSON.stringify(on.length ? on : ["panel"])); applyViews();
+}));
+$("#zoom").value = store.get("zoom", "2");
+$("#zoom").addEventListener("change", () => { store.set("zoom", $("#zoom").value); version = -1; });
+$("#paper").checked = store.get("paper", "0") === "1";
+const applyPaper = () => document.body.classList.toggle("paper", $("#paper").checked);
+$("#paper").addEventListener("change", () => { store.set("paper", $("#paper").checked ? "1" : "0"); applyPaper(); });
+applyPaper(); applyViews();
+
+async function post(body) {
+  await fetch("/api/settings", { method: "POST", body: JSON.stringify(body) });
+  version = -1; tick();
+}
+$("#sdk").addEventListener("change", () => post({ sdk_type: Number($("#sdk").value) }));
+$("#dither").addEventListener("change", () => post({ dither: $("#dither").value }));
+
+async function tick() {
+  let info;
+  try { info = await (await fetch("/api/frame")).json(); } catch { return; }
+  if (!typesLoaded) {
+    $("#sdk").innerHTML = info.types.map((t) => `<option value="${t.sdk_type}">${t.label}</option>`).join("");
+    typesLoaded = true;
+  }
+  $("#sdk").value = String(info.sdk_type);
+  if (info.version === version) return;
+  version = info.version;
+  $("#title").textContent = `${info.screen} · ${info.model}`;
+  $("#error").classList.toggle("hidden", !info.error);
+  $("#errtext").textContent = info.error || "";
+  const zoom = Number($("#zoom").value);
+  for (const which of ["drawn", "quantized", "panel"]) {
+    const img = $(`#img-${which}`);
+    img.onload = () => { img.style.width = `${img.naturalWidth * zoom}px`; };
+    img.src = `/img/${which}.png?v=${version}`;
+  }
+  const warn = (info.warnings || []).map((w) => `<div class="warn">⚠ ${w}</div>`).join("");
+  $("#info").innerHTML = `
+    <div><b>${info.size ? info.size.join("×") : "—"}</b> · render ${info.render_ms} ms · ${info.bytes} bytes on the wire · digest ${info.digest || "—"} · dither ${info.dither} · state: ${info.state}</div>
+    <div>Entities read (redraw triggers): <b>${info.accessed.join(", ") || "none"}</b></div>${warn}`;
+}
+setInterval(tick, 1000); tick();
+</script>
+</body>
+</html>

@@ -538,7 +538,7 @@ class AutomationBindingTests(unittest.TestCase):
         self.assertNotIn(address, manager._pending_refreshes)
         self.assertNotIn(address, manager._timers)
         self.assertEqual([address], timer_cancelled)
-        self.assertEqual({"configs": {}}, manager._store.saved)
+        self.assertEqual({"configs": {}, "layers": {}}, manager._store.saved)
 
     def test_changing_config_does_not_cancel_an_in_flight_transfer(self):
         address = "FF:FF:92:81:46:32"
@@ -624,7 +624,7 @@ class AutomationBindingTests(unittest.TestCase):
 
         self.assertNotIn(address, manager._configs)
         self.assertNotIn(address, manager._last_refresh_at)
-        self.assertEqual({"configs": {}}, manager._store.saved)
+        self.assertEqual({"configs": {}, "layers": {}}, manager._store.saved)
 
     def test_time_condition_supports_daytime_and_overnight_intervals(self):
         matches = automation.EntityAutoUpdateManager._condition_matches

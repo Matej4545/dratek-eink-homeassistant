@@ -1,0 +1,20 @@
+# A departure board with a minute countdown: how often would the panel really refresh?
+screen: ../screens/departures.py
+state: ../states/demo.yaml
+sdk_type: 299
+duration: 20m
+debounce: 0
+min_gap: 60
+
+events:
+  - at: 5m
+    set:
+      sensor.pid_avia_letnany:
+        attributes:
+          departures:
+            - {line: "195", destination: Skalka, scheduled: "07:36", expected: "07:38", delay_min: 2, accessible: true, air_conditioned: true}
+            - {line: "158", destination: Letňany, scheduled: "07:37", expected: "07:37", delay_min: 0, accessible: true, air_conditioned: true}
+            - {line: "201", destination: Černý Most, scheduled: "07:37", expected: "07:37", delay_min: 0, accessible: true, air_conditioned: true}
+            - {line: "166", destination: Střížkov, scheduled: "07:40", expected: "07:40", delay_min: 0, accessible: true, air_conditioned: false}
+            - {line: "201", destination: Nádraží Holešovice, scheduled: "07:39", expected: "07:40", delay_min: 1, accessible: true, air_conditioned: true}
+            - {line: "158", destination: Letňany, scheduled: "07:45", expected: "07:45", delay_min: 0, accessible: true, air_conditioned: true}

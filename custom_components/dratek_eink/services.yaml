@@ -131,3 +131,122 @@ set_display_layer:
       default: false
       selector:
         boolean:
+
+show_image:
+  name: Show image
+  description: >-
+    Put any picture on a display - a file, a URL, a camera snapshot or base64 data. It is fitted
+    to the panel, reduced to the panel's colours and sent through the usual route (Bluetooth or
+    an ESP32 gateway). Skipped when the display already shows exactly this picture. Pauses the
+    display's automatic refresh so it does not paint over the picture.
+  fields:
+    address:
+      name: BLE address
+      description: BLE MAC address of the display.
+      required: true
+      example: "FF:FF:94:20:10:78"
+      selector:
+        text:
+    image:
+      name: Image file
+      description: >-
+        Path to an image file (relative paths are under /config). Must be in an allowed directory:
+        /config/www and /media are allowed by default, others via allowlist_external_dirs.
+      required: false
+      example: "www/eink/weather.png"
+      selector:
+        text:
+    url:
+      name: Image URL
+      description: http(s) URL of an image.
+      required: false
+      example: "http://192.168.1.10:8000/screen.png"
+      selector:
+        text:
+    camera_entity:
+      name: Camera
+      description: Camera entity whose current snapshot is shown.
+      required: false
+      selector:
+        entity:
+          domain: camera
+    data:
+      name: Base64 data
+      description: Image bytes as base64 or a data URL (for scripts that render in memory).
+      required: false
+      selector:
+        text:
+          multiline: true
+    sdk_type:
+      name: SDK type
+      description: >-
+        Override the display type. Normally detected from the display's advertisement;
+        46 is the 2.9" 296x128 BWRY label.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 5000
+          mode: box
+    fit:
+      name: Fit
+      description: >-
+        How a picture of another size is fitted. contain = scale to fit with white margins,
+        cover = scale and crop, stretch = distort, none = refuse anything but the exact size.
+      required: false
+      default: contain
+      selector:
+        select:
+          options: [contain, cover, stretch, none]
+    orientation:
+      name: Orientation
+      description: auto uses portrait for pictures taller than wide.
+      required: false
+      default: auto
+      selector:
+        select:
+          options: [auto, landscape, portrait]
+    dither:
+      name: Dither
+      description: >-
+        ordered = stable patterns for greys and in-between colours (best for UIs),
+        floyd = smoother for photos, none = nearest colour, threshold = the integration's
+        older black/white/red cut-off.
+      required: false
+      default: ordered
+      selector:
+        select:
+          options: [ordered, floyd, none, threshold]
+    transform:
+      name: Transform
+      description: Override the display mapping saved in the panel for this display.
+      required: false
+      selector:
+        select:
+          options: [rotate_cw, rotate_ccw, rotate_cw_flip_lr, rotate_cw_flip_tb, rotate_ccw_flip_lr, rotate_ccw_flip_tb, none, rotate_180, flip_lr, flip_tb]
+    force:
+      name: Force
+      description: Send even if the display already shows this picture.
+      required: false
+      default: false
+      selector:
+        boolean:
+    pause_automation:
+      name: Pause automatic refresh
+      description: >-
+        Pause (not delete) the display's automatic refresh configured in the panel, so its
+        next tick does not overwrite the picture. Resumed automatically if the send fails
+        (only when wait is on - with wait off the outcome is not known to the service).
+      required: false
+      default: true
+      selector:
+        boolean:
+    wait:
+      name: Wait for the display
+      description: >-
+        Wait until the transfer finishes, so errors are reported. Off = queue and return at once;
+        the response then says queued, and failures only show in the panel's queue.
+      required: false
+      default: true
+      selector:
+        boolean:
