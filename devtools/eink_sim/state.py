@@ -14,6 +14,10 @@ State file format (YAML or JSON)::
         hourly: [...]
     history:                             # numeric history for charts
       sensor.outside_temperature: [["2026-11-16T06:00:00", 3.1], ...]
+    transit:                             # departures by stop id (what transit.py returns)
+      "stop-id":
+        stop_name: Avia Letňany
+        departures: [{line: "201", destination: Nádraží Holešovice, departure: "07:31", realtime: true}]
 
 Live mode reads ``HA_URL`` and ``HA_TOKEN`` (a long-lived access token) from the
 environment or ``devtools/.env``. It only issues GET requests plus the
@@ -27,11 +31,15 @@ import json
 import os
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from .component import load
+
+_transit = load("transit")
 
 
 def _normalise_entity(value: Any) -> dict[str, Any]:
@@ -60,6 +68,23 @@ class StateSource:
         }
         self.forecasts: dict[str, dict[str, list]] = data.get("forecasts") or {}
         self.history_data: dict[str, list] = data.get("history") or {}
+        self.transit_data: dict[str, dict] = data.get("transit") or {}
+        self.calendar_data: dict[str, list] = data.get("calendars") or {}
+
+    def calendar(self, entity_id: str, hours: float) -> list[dict[str, Any]]:
+        """Fixture events in the next `hours` hours (start/end as ISO strings, like HA returns)."""
+        now = self.now or datetime.now()
+        end = now + timedelta(hours=hours)
+        events = []
+        for event in self.calendar_data.get(entity_id) or []:
+            try:
+                start = parse_dt(event["start"])
+                stop = parse_dt(event.get("end") or event["start"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if stop >= now and start <= end:
+                events.append(dict(event))
+        return events
 
     def refresh(self) -> None:
         """Re-fetch (live sources). No-op for fixtures."""
@@ -70,7 +95,8 @@ class StateSource:
     def forecast(self, entity_id: str, kind: str) -> list[dict[str, Any]]:
         return list((self.forecasts.get(entity_id) or {}).get(kind) or [])
 
-    def history(self, entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+    def history(self, entity_id: str, hours: float, now: datetime) -> list[tuple[datetime, float]]:
+        start, end = now - timedelta(hours=hours), now
         points = []
         for stamp, value in self.history_data.get(entity_id) or []:
             when = parse_dt(stamp)
@@ -80,6 +106,22 @@ class StateSource:
                 except (TypeError, ValueError):
                     pass
         return points
+
+    def transit(self, stop_id: str, limit: int, now: datetime | None = None) -> dict[str, Any]:
+        board = dict(self.transit_data.get(stop_id) or {"stop_name": "", "departures": []})
+        now = now or self.now or datetime.now()
+        rows = []
+        for dep in board.get("departures") or []:  # minutes from the fixture's clock time
+            try:
+                hh, mm = (int(x) for x in str(dep.get("departure")).split(":"))
+                when = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                minutes = int((when - now).total_seconds() // 60)
+            except (TypeError, ValueError):
+                minutes = int(dep.get("minutes") or 0)
+            if minutes >= 0:
+                rows.append({**dep, "minutes": minutes})
+        board["departures"] = rows[:limit]
+        return board
 
     def set(self, entity_id: str, value: Any) -> None:
         """Apply a change. A dict merges attributes; a scalar replaces the state."""
@@ -159,7 +201,29 @@ class LiveSource(StateSource):
             self._forecast_cache[key] = (response.get(entity_id) or {}).get("forecast") or []
         return list(self._forecast_cache[key])
 
-    def history(self, entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
+    def calendar(self, entity_id: str, hours: float) -> list[dict[str, Any]]:
+        data = self._request(
+            "/api/services/calendar/get_events?return_response",
+            {"entity_id": entity_id, "duration": {"hours": hours}},
+        )
+        response = data.get("service_response", data)
+        return list((response.get(entity_id) or {}).get("events") or [])
+
+    def transit(self, stop_id: str, limit: int, now: datetime | None = None) -> dict[str, Any]:
+        """Live departures straight from Transitous, normalized by the integration's own code."""
+        query = urllib.parse.urlencode({
+            "stopId": stop_id, "n": max(12, limit * 3), "radius": 1, "exactRadius": "false",
+            "fetchStops": "true", "language": "cs,sk", "withAlerts": "false",
+        })
+        req = urllib.request.Request(
+            f"{_transit.API_BASE}/api/v6/stoptimes?{query}",
+            headers={"User-Agent": "eink-simulator/0.1", "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 - fixed public API
+            return _transit.normalize_departures(json.loads(resp.read().decode()), limit=limit)
+
+    def history(self, entity_id: str, hours: float, now: datetime) -> list[tuple[datetime, float]]:
+        start, end = now - timedelta(hours=hours), now
         key = (entity_id, int(start.timestamp()) // 300)
         if key not in self._history_cache:
             stamp = start.astimezone().isoformat()

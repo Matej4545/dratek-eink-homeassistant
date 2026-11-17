@@ -67,9 +67,41 @@ SHOW_IMAGE_SCHEMA = vol.Schema(
 )
 
 
+LAST_SENT_STORE_KEY = "dratek_eink.show_image_state"
+_STORE_DATA_KEY = "show_image_store"
+
+
 def forget_last_sent(hass: HomeAssistant, address: str) -> None:
     """Call from any other path that writes a display without saving a preview."""
-    hass.data.get(DOMAIN, {}).get(LAST_SENT_KEY, {}).pop(str(address).strip().upper(), None)
+    if hass.data.get(DOMAIN, {}).get(LAST_SENT_KEY, {}).pop(str(address).strip().upper(), None):
+        _schedule_save(hass)
+
+
+def _store(hass: HomeAssistant):
+    domain = hass.data.setdefault(DOMAIN, {})
+    if _STORE_DATA_KEY not in domain:
+        from homeassistant.helpers.storage import Store
+
+        domain[_STORE_DATA_KEY] = Store(hass, 1, LAST_SENT_STORE_KEY)
+    return domain[_STORE_DATA_KEY]
+
+
+async def _async_last_sent(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
+    """What each display last got from this module - kept across restarts, so a
+    restart does not repaint every display with the picture it already shows."""
+    domain = hass.data.setdefault(DOMAIN, {})
+    if LAST_SENT_KEY not in domain:
+        stored = await _store(hass).async_load() or {}
+        domain[LAST_SENT_KEY] = {
+            str(k).upper(): v for k, v in (stored.get("displays") or {}).items() if isinstance(v, dict)
+        }
+    return domain[LAST_SENT_KEY]
+
+
+def _schedule_save(hass: HomeAssistant) -> None:
+    domain = hass.data.get(DOMAIN, {})
+    if LAST_SENT_KEY in domain:
+        _store(hass).async_delay_save(lambda: {"displays": dict(domain.get(LAST_SENT_KEY, {}))}, 2)
 
 
 # ---------------------------------------------------------------- sources
@@ -197,7 +229,7 @@ async def async_handle_show_image(hass: HomeAssistant, call: ServiceCall) -> dic
 
     raw = await _async_read_source(hass, given[0], data[given[0]])
 
-    from .render import pack_bwr_image, packing_description
+    from .render import pack_bwr_image
 
     def prepare() -> tuple[Any, str, str]:
         image, orientation = prepare_image(
@@ -214,18 +246,61 @@ async def async_handle_show_image(hass: HomeAssistant, call: ServiceCall) -> dic
     except ValueError as exc:
         raise ServiceValidationError(str(exc)) from exc
 
+    try:
+        response = await async_send_image(
+            hass, address, image, sdk_type, transform, orientation,
+            digest=digest,
+            force=bool(data.get("force")),
+            pause_automation=bool(data.get("pause_automation", True)),
+            wait=bool(data.get("wait", True)),
+            operation="show_image",
+        )
+    except SendFailed as exc:
+        raise HomeAssistantError(str(exc)) from exc
+    return response if call.return_response else None
+
+
+class SendFailed(RuntimeError):
+    """The display (or its gateway) did not take the picture."""
+
+
+async def async_send_image(
+    hass: HomeAssistant,
+    address: str,
+    image: Any,
+    sdk_type: int,
+    transform: str,
+    orientation: str,
+    *,
+    digest: str | None = None,
+    force: bool = False,
+    pause_automation: bool = True,
+    wait: bool = True,
+    operation: str = "show_image",
+) -> dict[str, Any]:
+    """Send an image already prepared for the panel (fitted + quantized).
+
+    Shared by the show_image action and the screen runtime. Skips the write when
+    the display already shows these exact bytes (unless ``force``). Raises
+    SendFailed when a waited-for transfer fails.
+    """
+    from .render import pack_bwr_image, packing_description
+
+    if digest is None:
+        payload = await hass.async_add_executor_job(pack_bwr_image, sdk_type, image, transform, orientation)
+        digest = hashlib.sha1(payload).hexdigest()
     response: dict[str, Any] = {
         "address": address, "sdk_type": sdk_type, "transform": transform, "orientation": orientation,
         "width": image.width, "height": image.height, "digest": digest[:12],
     }
-    last_sent = hass.data.setdefault(DOMAIN, {}).setdefault(LAST_SENT_KEY, {})
+    last_sent = await _async_last_sent(hass)
 
-    if not data.get("force") and await _async_already_showing(hass, address, digest, last_sent):
-        _LOGGER.debug("[%s] show_image skipped: the display already shows this picture", address)
-        return {**response, "sent": False, "reason": "unchanged"} if call.return_response else None
+    if not force and await _async_already_showing(hass, address, digest, last_sent):
+        _LOGGER.debug("[%s] %s skipped: the display already shows this picture", address, operation)
+        return {**response, "sent": False, "queued": False, "reason": "unchanged"}
 
     response["automation_paused"] = False
-    if data.get("pause_automation", True):
+    if pause_automation:
         response["automation_paused"] = await _async_pause_automation(hass, address)
 
     from .display_preview import async_save_display_preview
@@ -237,19 +312,20 @@ async def async_handle_show_image(hass: HomeAssistant, call: ServiceCall) -> dic
         try:
             preview = await async_save_display_preview(hass, address, image, orientation, template_ids=[])
             last_sent[address] = {"digest": digest, "preview_updated_at": preview.get("preview_updated_at")}
+            _schedule_save(hass)
         except Exception as exc:  # the pixels are on the display either way
             forget_last_sent(hass, address)
             add_log(f"Display updated, but its preview could not be saved: {exc}")
 
     async def run_local(add_log) -> dict[str, Any]:
-        add_log(f"show_image: {image.width}x{image.height}, {packing_description(sdk_type)}, transform {transform}.")
+        add_log(f"{operation}: {image.width}x{image.height}, {packing_description(sdk_type)}, transform {transform}.")
         await DratekTransfer(log=add_log, hass=hass).send_image(address, sdk_type, image, transform, orientation)
         await on_success(add_log)
         return {"ok": True, "address": address, "log": []}
 
     def gateway_runner_factory(route: dict[str, Any]):
         async def run_gateway(add_log) -> dict[str, Any]:
-            add_log(f"show_image: {image.width}x{image.height} via gateway {route.get('name') or route.get('id')}.")
+            add_log(f"{operation}: {image.width}x{image.height} via gateway {route.get('name') or route.get('id')}.")
             result = await async_send_gateway_payload(
                 hass, str(route.get("id") or ""), address, sdk_type, image, transform, orientation,
                 None, log_callback=add_log,
@@ -265,10 +341,10 @@ async def async_handle_show_image(hass: HomeAssistant, call: ServiceCall) -> dic
     result = await _async_submit_routed_transfer(
         hass,
         address=address,
-        operation="show_image",
+        operation=operation,
         local_runner=run_local,
         gateway_runner_factory=gateway_runner_factory,
-        wait_for_completion=bool(data.get("wait", True)),
+        wait_for_completion=wait,
     )
     if result and result.get("ok") is False:
         if response["automation_paused"]:
@@ -276,14 +352,14 @@ async def async_handle_show_image(hass: HomeAssistant, call: ServiceCall) -> dic
             from .automation import get_entity_auto_update_manager
 
             await get_entity_auto_update_manager(hass).async_set_enabled(address, True)
-        raise HomeAssistantError(f"Sending to {address} failed: {result.get('error') or 'unknown error'}")
-    if data.get("wait", True):
+        raise SendFailed(f"Sending to {address} failed: {result.get('error') or 'unknown error'}")
+    if wait:
         response.update({"sent": True, "queued": False})
     else:
         # Only queued: the outcome (and resuming a paused automation on failure)
         # is not known here. The queue panel and the preview camera show it.
         response.update({"sent": False, "queued": True})
-    return response if call.return_response else None
+    return response
 
 
 async def _async_already_showing(hass: HomeAssistant, address: str, digest: str, last_sent: dict) -> bool:

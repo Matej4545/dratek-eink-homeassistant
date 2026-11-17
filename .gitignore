@@ -25,3 +25,4 @@ skills-lock.json
 .venv/
 devtools/out/
 devtools/.env
+.venv-ha/

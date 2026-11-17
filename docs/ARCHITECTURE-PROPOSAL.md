@@ -1,8 +1,8 @@
 # Architecture proposal: screens as code, integration as transport
 
-Status: proposal (2026-11-16). Nothing here is implemented in the integration
-yet. The `devtools/` simulator is a working prototype of the screen runtime and
-update policy described below.
+Status: steps 1 and 2 implemented (2026-11-16/17). `show_image` is deployed and
+was confirmed on a real 2.9" BWRY display; the screen runtime is built and tested
+against stubs. See [SCREENS.md](SCREENS.md) for how to use it.
 
 ## TL;DR
 
@@ -159,10 +159,17 @@ Each step is shippable and testable with the simulator before it reaches product
      `force` is set.
    * It pauses the display's automatic refresh rather than deleting it, and
      returns a response on request.
-2. **Screen runtime.** Move `context.py`, `dither.py` and the update loop into
-   the integration. Add a mapping from display to screen file (options flow or
-   YAML), and run on `state_changed` and the interval. The simulator imports the
-   same modules.
+2. **Screen runtime.** *Implemented 2026-11-17*, see [SCREENS.md](SCREENS.md).
+   * `screen_render.py` holds the render function and `UpdatePolicy`;
+     `screen_context.py` is `ctx`; `screen_runtime.py` is the HA runner.
+   * Each display gets a Screen select entity and a Redraw button, and there are
+     new actions (`set_screen`, `refresh_screen`, `reload_screens`,
+     `find_transit_stop`).
+   * Bundled screens are in `bundled_screens/`, user screens in
+     `/config/dratek_screens/`.
+   * The simulator imports the same modules.
+   * Tested against stubs (`tests/test_screen_runtime.py`). Not yet run inside
+     HA, because HA's test tooling doesn't install on Windows.
 3. **Delete the old layer:** the designer and templates, script templates,
    `automation.py` binding refresh, `svg_blocks.py`, the binding renderers in
    `render.py`, and the `ws_*` handlers they use. Keep a slim panel (or plain HA
@@ -199,8 +206,9 @@ Each step is shippable and testable with the simulator before it reaches product
   * Packing: 2 bits per pixel, 9,472 bytes per frame.
   * Orientation: the vendor-specific quarter turn plus 180° (`BWRY_296X128_CODE`
     in `render.py`).
-  * The simulator round-trips this path exactly. Whether the physical panel
-    agrees is a one-time check with `devtools/screens/test_pattern.py`.
+  * The simulator round-trips this path exactly, and the physical panel agrees.
+    *Confirmed on the real display on 2026-11-17:* the test pattern came out
+    correctly oriented, with all four pigments and both dither patterns as previewed.
 * **Consequences for the design:**
   * Partial refresh is only supported on SDK 2635, so every update of this
     display is a full refresh. Keep `min_gap` generous.

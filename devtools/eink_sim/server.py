@@ -17,15 +17,17 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import panel
-from .pipeline import Frame, render_frame
+from .pipeline import Frame, render_frame, resolve_screen_path
 from .state import LiveSource, StateSource, load_state_file
 
 PAGE = (Path(__file__).parent / "preview.html").read_text(encoding="utf-8")
 
 
 class Preview:
-    def __init__(self, screen: Path, state: Path | None, live: bool, sdk_type: int, framed: bool) -> None:
-        self.screen = screen.resolve()
+    def __init__(self, screen, state: Path | None, live: bool, sdk_type: int, framed: bool,
+                 options: dict | None = None) -> None:
+        self.screen = resolve_screen_path(screen)
+        self.options = dict(options or {})
         self.state = state.resolve() if state else None
         self.live = LiveSource() if live else None
         self.sdk_type = sdk_type
@@ -63,14 +65,16 @@ class Preview:
                 self._key = key
                 now = source.now or datetime.now().replace(microsecond=0)
                 self.frame = render_frame(
-                    self.screen, source, self.sdk_type, now, framed=self.framed, dither_mode=self.dither
+                    self.screen, source, self.sdk_type, now, options=self.options, framed=self.framed,
+                    dither_mode=self.dither,
                 )
                 self.version += 1
             return self.frame
 
 
-def serve(screen: Path, state: Path | None, live: bool, sdk_type: int, port: int, framed: bool) -> None:
-    preview = Preview(screen, state, live, sdk_type, framed)
+def serve(screen, state: Path | None, live: bool, sdk_type: int, port: int, framed: bool,
+          options: dict | None = None) -> None:
+    preview = Preview(screen, state, live, sdk_type, framed, options)
     types = [
         {"sdk_type": s.sdk_type, "label": f"{s.sdk_type} · {s.model}", "size": [s.width, s.height]}
         for s in panel.supported_types()

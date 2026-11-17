@@ -1,5 +1,6 @@
 # Six hours of a normal morning: what triggers a refresh, what is skipped, what waits.
-screen: ../screens/weather.py
+screen: weather
+options: {weather: weather.home, indoor_temperature: sensor.indoor_temperature, indoor_humidity: sensor.indoor_humidity}
 state: ../states/demo.yaml
 sdk_type: 299          # 800x480 BWR
 duration: 6h

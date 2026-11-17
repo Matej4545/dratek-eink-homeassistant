@@ -1,16 +1,21 @@
 """Weather dashboard, 800x480 - current conditions, 5-day strip, stats grid, 24 h chart.
 
-Uses: weather.home (+ weather.get_forecasts daily/hourly), sun.sun,
-sensor.indoor_temperature, sensor.indoor_humidity. Rename to your entities.
+Options pick the entities: the weather entity (plus its daily/hourly
+forecasts), and optional indoor temperature/humidity sensors.
 """
 
 from __future__ import annotations
 
-from _ui import (CONDITIONS_CZ, DAYS_CZ, DAYS_LONG_CZ, MONTHS_GEN_CZ, WEATHER_ICONS, dotted_hline,
-                 nice_range, num)
+from dratek_screen import (CONDITIONS_CZ, DAYS_CZ, DAYS_LONG_CZ, MONTHS_GEN_CZ, WEATHER_ICONS, dotted_hline,
+                 nice_range, num, rain_fractions)
 
+TITLE = "Počasí (800×480)"
 SDK_TYPE = 299  # designed for 800x480; see mini_weather.py for the 2.9" label
-WEATHER = "weather.home"
+OPTIONS = {
+    "weather": "weather.forecast_home",
+    "indoor_temperature": "",
+    "indoor_humidity": "",
+}
 # No INTERVAL: redraw only when an entity read below changes. (The date in the
 # corner still flips at midnight with the next data change; add INTERVAL = 3600
 # if that matters - a tick that renders identical bytes costs no panel write.)
@@ -21,6 +26,7 @@ def render(ctx):
     W, H = ctx.size
     ink, accent = ctx.BLACK, ctx.accent
     f = ctx.font
+    WEATHER = ctx.options["weather"]
 
     # ------------------------------------------------------------ current
     condition = ctx.state(WEATHER, "cloudy")
@@ -64,9 +70,11 @@ def render(ctx):
         ("water-percent", "Vlhkost", num(ctx.num(WEATHER, attr="humidity")), "%"),
         ("gauge", "Tlak", num(ctx.num(WEATHER, attr="pressure")), "hPa"),
         ("eye", "Viditelnost", num(ctx.num(WEATHER, attr="visibility")), "km"),
-        ("thermometer", "Doma", num(ctx.num("sensor.indoor_temperature"), 1), "°C"),
-        ("home", "Doma vlhkost", num(ctx.num("sensor.indoor_humidity")), "%"),
     ]
+    if ctx.options["indoor_temperature"]:
+        stats.append(("thermometer", "Doma", num(ctx.num(ctx.options["indoor_temperature"]), 1), "°C"))
+    if ctx.options["indoor_humidity"]:
+        stats.append(("home", "Doma vlhkost", num(ctx.num(ctx.options["indoor_humidity"])), "%"))
     for i, (icon, label, value, unit) in enumerate(stats):
         x = 16 + (i % 2) * 190
         y = 212 + (i // 2) * 62
@@ -90,7 +98,7 @@ def _chart(ctx, d, box, hourly):
     x0, y0, x1, y1 = box
     ink, accent, f = ctx.BLACK, ctx.accent, ctx.font
     temps = [float(h["temperature"]) for h in hourly]
-    rain = [float(h.get("precipitation_probability") or 0) for h in hourly]
+    rain = [100 * r for r in rain_fractions(hourly)]
     lo, hi, step = nice_range(min(temps) - 0.5, max(temps) + 0.5)
     n, slot = len(hourly), (x1 - x0) / len(hourly)
 
