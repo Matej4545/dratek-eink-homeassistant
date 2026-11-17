@@ -28,7 +28,8 @@
     "zeroconf>=0.131.0",
     "pyserial>=3.5",
     "esptool>=5.0.0",
-    "resvg-py>=0.3.4"
+    "resvg-py>=0.3.4",
+    "numpy"
   ],
   "version": "1.0.3-matej.1",
   "zeroconf": [

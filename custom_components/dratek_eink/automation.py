@@ -880,6 +880,8 @@ class EntityAutoUpdateManager:
         return str(value or "").strip()[:80]
 
     async def _async_save_store(self) -> None:
+        # setdefault: tests build this manager via __new__, bypassing __init__.
+        self.__dict__.setdefault("_layers", {})
         await self._store.async_save(
             {
                 "configs": self._configs,
